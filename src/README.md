@@ -4,7 +4,6 @@ CD Encoder stores an audio file as a lossless WebP image and can recover the ori
 
 This is an experimental digital storage format. It is not CD-DA and cannot be played directly by a conventional CD player.
 
-The project also provides a compact binary `.cdmp` format for storing the MP3 and its metadata without the WebP pixel canvas.
 
 ## Current Format
 
@@ -20,6 +19,8 @@ The project also provides a compact binary `.cdmp` format for storing the MP3 an
 - Pixel header size: `573` bytes (`61` bytes core header + `512` bytes audio metadata)
 
 Audio metadata remains in the custom pixel header, while the `encoding` and `technical` entries are stored in the WebP XMP chunk and can be read before pixel decoding. During decoding, valid XMP values override the local default constants; missing XMP values fall back to those defaults.
+
+The web interface supports WebP encode/decode only. Metadata and technical MP3 data are shown in separate interface panels.
 
 ## Requirements
 
@@ -60,23 +61,6 @@ sudo apt install ffmpeg
 ```
 
 ## PHP API
-
-### CDMP format
-
-Use `CdmpEncoder` when the goal is compact, exact file storage rather than a visual WebP representation:
-
-```php
-use CdEncoder\CdmpEncoder;
-
-$encoder = new CdmpEncoder($audioPath, $cdmpPath);
-$encoder->encode();
-
-$decoder = new CdmpEncoder($recoveredAudioPath, $cdmpPath);
-$decoder->decode();
-$metadata = $decoder->getMetadata();
-```
-
-The CDMP header contains a magic value, version, metadata length, audio length, and SHA-256. The payload contains the original MP3 bytes. It does not require GD or WebP and has no lossy compression.
 
 Encode an audio file:
 
@@ -158,7 +142,12 @@ The tests cover:
 - byte-for-byte recovery verified by SHA-256;
 - empty metadata handling for an untagged audio file;
 - recovery of the encoding constants and MP3 technical data stored in WebP XMP.
-- exact round-trip recovery for the compact `.cdmp` format.
+
+Expected result:
+
+```text
+OK (2 tests, 8 assertions)
+```
 
 ## Important Compatibility Notes
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace CdEncoder\Tests;
 
 use CdEncoder\CdEncoder;
-use CdEncoder\CdmpEncoder;
 use PHPUnit\Framework\TestCase;
 
 final class CdEncoderTest extends TestCase
@@ -101,22 +100,4 @@ final class CdEncoderTest extends TestCase
         ], $decoder->getMetadata());
     }
 
-    public function testItEncodesAndDecodesTheCompactCdmpFormat(): void
-    {
-        $audioPath = $this->temporaryDirectory . DIRECTORY_SEPARATOR . 'cdmp-input.mp3';
-        $cdmpPath = $this->temporaryDirectory . DIRECTORY_SEPARATOR . 'audio.cdmp';
-        $decodedAudioPath = $this->temporaryDirectory . DIRECTORY_SEPARATOR . 'cdmp-decoded.mp3';
-        $audioData = random_bytes(257);
-
-        file_put_contents($audioPath, $audioData);
-
-        $encoder = new CdmpEncoder($audioPath, $cdmpPath);
-        $decoder = new CdmpEncoder($decodedAudioPath, $cdmpPath);
-
-        $this->assertTrue($encoder->encode());
-        $this->assertFileExists($cdmpPath);
-        $this->assertTrue($decoder->decode());
-        $this->assertSame(hash_file('sha256', $audioPath), hash_file('sha256', $decodedAudioPath));
-        $this->assertArrayHasKey('technical', $decoder->getMetadata());
-    }
 }

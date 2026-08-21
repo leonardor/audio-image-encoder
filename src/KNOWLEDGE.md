@@ -8,39 +8,11 @@ CdEncoder stores an audio file inside a lossless WebP image and recovers the ori
 
 This is a digital storage format. It is not CD-DA and the generated image cannot be played by a normal CD player.
 
-The project also contains `CdmpEncoder`, a separate compact binary format for exact MP3 storage without a WebP canvas.
-
-## CDMP Format
-
-The `.cdmp` format is the non-visual storage alternative. Its binary layout is:
-
-```text
-MAGIC          4 bytes: CDMP
-VERSION        1 byte
-FLAGS          1 byte
-METADATA SIZE  4 bytes
-AUDIO SIZE     8 bytes
-SHA-256        32 bytes
-METADATA       JSON
-AUDIO PAYLOAD  original MP3 bytes
-```
-
-`CdmpEncoder` stores the original audio bytes without lossy conversion, stores MP3 metadata as JSON, and validates the decoded payload with SHA-256. It does not require GD or WebP.
-
-```php
-$encoder = new CdmpEncoder($audioPath, $cdmpPath);
-$encoder->encode();
-
-$decoder = new CdmpEncoder($recoveredAudioPath, $cdmpPath);
-$decoder->decode();
-$metadata = $decoder->getMetadata();
-```
-
 ## Current Implementation
 
 The active implementation is in `CdEncoder/CdEncoder.php`.
 
-The web application is in `CdEncoder/Application.php` and uses the following flow:
+The web application is in `CdEncoder/Application.php` and uses the following WebP flow:
 
 1. The user uploads an audio file.
 2. `Application` transcodes it to MP3 at `64 kbps` with `/usr/bin/ffmpeg`.
@@ -51,17 +23,19 @@ The web application is in `CdEncoder/Application.php` and uses the following flo
 
 The CLI in `public/cli.php` uses `CdEncoder` directly. It does not perform the web application's 64 kbps transcoding step.
 
+The web application currently generates and decodes WebP files only.
+
 ## WebP Metadata Access
 
-The application stores audio metadata and MP3 technical data in the custom pixel header and in a WebP XMP chunk.
+The application stores audio metadata in the custom pixel header and stores audio metadata, MP3 technical data, and encoding configuration in a WebP XMP chunk.
 
 It is stored as pixel data in a custom header ring. Therefore:
 
 - XMP metadata can be inspected before GD decodes the image pixels;
 - the custom pixel-header copy still requires WebP pixel decoding;
-- `imagecreatefromwebp()` must be called first;
-- the header ring must then be sampled using the stored geometry;
-- only after reading and validating the custom header can the audio metadata and encoding constants be obtained.
+- `imagecreatefromwebp()` is required for the payload and pixel header;
+- the header ring is sampled using the XMP configuration when available;
+- missing or incomplete XMP values fall back to the compiled defaults.
 
 The current API is:
 
@@ -89,7 +63,7 @@ The current format version is `7`. Older image versions are not compatible with 
 
 The header is stored as one byte per pixel in a dedicated ring. Header bytes use an 8 x 8 x 4 palette with 256 exact byte values.
 
-Header size is `829` bytes:
+Header size is `573` bytes:
 
 | Field | Size |
 |---|---:|
@@ -145,7 +119,7 @@ Current keys include:
 - `payload_bytes_per_pixel`
 - `metadata_field_length`
 
- This makes each generated image self-descriptive regarding the encoder configuration. During decoding, valid XMP values override the local defaults; missing or incomplete values fall back to the compiled defaults.
+This makes each generated image self-descriptive regarding the encoder configuration. During decoding, valid XMP values override the local defaults; missing or incomplete values fall back to the compiled defaults.
 
 ## Geometry
 
@@ -277,10 +251,10 @@ OK (2 tests, 8 assertions)
 - Images from format versions before v7 are rejected.
 - Metadata fields are limited to 128 bytes each.
 - The encoding configuration block is limited to 256 bytes.
-- The current decoder reads the configuration for reporting but uses local constants for coordinate calculation.
+- The current decoder reads the XMP configuration before decoding pixels and uses it for coordinate calculation, with local defaults as fallback.
 - `packUint64()` currently stores the file size with a zero high word, which limits practical file sizes to the supported PHP integer range used by this project.
 - The web application requires `/usr/bin/ffmpeg` and sufficient process permissions for the PHP user.
-- The application currently generates a fixed-size image. A smaller source MP3 does not automatically produce a physically smaller WebP canvas.
+- The web application currently generates a fixed-size image. A smaller source MP3 does not automatically produce a physically smaller WebP canvas.
 - Changing DPI, spiral constants, marker positions, payload density, or header layout requires a format-version change and new round-trip tests.
 
 ## Historical Notes
