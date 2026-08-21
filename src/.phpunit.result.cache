@@ -1,0 +1,1 @@
+{"version":2,"defects":[],"times":{"CdEncoder\\Tests\\CdEncoderTest::testItEncodesAndDecodesAnOddLengthPayloadWithoutChangingItsHash":0.296,"CdEncoder\\Tests\\CdEncoderTest::testItReturnsEmptyMetadataForAnAudioFileWithoutTags":0.356,"CdEncoder\\Tests\\CdEncoderTest::testItEncodesAndDecodesTheCompactCdmpFormat":0.038}}
