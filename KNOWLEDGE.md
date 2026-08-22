@@ -8,22 +8,37 @@ CdEncoder stores an audio file inside a lossless WebP image and recovers the ori
 
 This is a digital storage format. It is not CD-DA and the generated image cannot be played by a normal CD player.
 
+## License
+
+The project is licensed under the MIT License. The full license text is in `LICENSE`.
+
+## Runtime Requirements
+
+- PHP 8.4 or newer;
+- GD with WebP support, including lossless WebP support;
+- FFmpeg installed at `/usr/bin/ffmpeg`;
+- Composer dependencies installed from `composer.json`.
+
 ## Current Implementation
 
-The active implementation is in `CdEncoder/CdEncoder.php`.
+The active implementation is in `CdEncoder/Application/Services/CdEncoder.php`.
 
-The web application is in `CdEncoder/Application.php` and uses the following WebP flow:
+The web application controller is in `CdEncoder/UI/Http/Controller/Index.php` and uses the following WebP flow:
 
 1. The user uploads an audio file.
 2. `Transcoder` transcodes it to MP3 at `64 kbps` with `/usr/bin/ffmpeg`.
 3. FFmpeg copies metadata and writes ID3v2.3 and ID3v1 tags.
-4. `CdEncoder::encode()` reads the temporary MP3 and creates a lossless WebP.
+4. `CdEncoder` reads the temporary MP3 and creates a lossless WebP.
 5. The temporary transcoded MP3 is deleted.
 6. During decoding, `CdEncoder` extracts the payload, verifies SHA-256, writes the recovered MP3, and exposes metadata through `getMetadata()`.
 
-The CLI in `public/cli.php` uses `CdEncoder` directly. It does not perform the web application's 64 kbps transcoding step.
+The CLI in `public/cli.php` uses Symfony Console and the `CliCommand` class. It does not perform the web application's 64 kbps transcoding step.
 
 The web application currently generates and decodes WebP files only.
+
+The standalone HTTP entrypoints use Symfony HttpFoundation responses. Images
+and recovered audio are streamed with `BinaryFileResponse`, including standard
+file metadata and range support.
 
 ## WebP Metadata Access
 
@@ -40,10 +55,14 @@ It is stored as pixel data in a custom header ring. Therefore:
 The current API is:
 
 ```php
-$decoder = new CdEncoder($audioOutputPath, $imagePath);
+$decoder = new CdEncoder($logger);
+$decoder->prepare($audioOutputPath, $imagePath);
 $decoder->decode();
 $metadata = $decoder->getMetadata();
 ```
+
+The encoder and transcoder require a PSR-3 logger. The HTTP and CLI entrypoints
+use Monolog, while tests can use `Psr\Log\NullLogger`.
 
 ## Format Version 7
 
@@ -153,14 +172,16 @@ The header ring must remain sparse enough to avoid two header bytes mapping to t
 Encoding:
 
 ```php
-$encoder = new CdEncoder($audioPath, $imagePath);
+$encoder = new CdEncoder($logger);
+$encoder->prepare($audioPath, $imagePath);
 $encoder->encode();
 ```
 
 Decoding:
 
 ```php
-$decoder = new CdEncoder($audioOutputPath, $imagePath);
+$decoder = new CdEncoder($logger);
+$decoder->prepare($audioOutputPath, $imagePath);
 $decoder->decode();
 $metadata = $decoder->getMetadata();
 ```
@@ -200,6 +221,9 @@ Required server checks:
 
 The current direct transcoding flow uses `/usr/bin/ffmpeg`. The error text still mentions both FFmpeg and FFprobe because FFprobe may be needed by related tooling or future metadata workflows.
 
+The current implementation does not provide encryption, copyright protection,
+or censorship resistance. Those are possible future directions only.
+
 ## Composer Dependencies
 
 Install dependencies with:
@@ -211,14 +235,22 @@ php composer.phar install --no-interaction
 Runtime packages:
 
 - `james-heinrich/getid3` for MP3 metadata;
-- `symfony/process` for FFmpeg process execution.
+- `symfony/process` for FFmpeg process execution;
+- `symfony/http-foundation` for HTTP requests and responses;
+- `symfony/console` for the CLI;
+- `twig/twig` for web templates;
+- `ramsey/uuid` for generated file names;
+- `monolog/monolog` for PSR-3 logging.
 
 Development packages:
 
 - `phpstan/phpstan`;
-- `phpunit/phpunit`.
+- `phpunit/phpunit`;
+- `friendsofphp/php-cs-fixer`.
 
-Composer autoloading is loaded by `autoload.php`.
+Composer autoloading is loaded by `vendor/autoload.php` through the project entrypoints.
+
+Application logs are written to `logs/cd-encoder.log`. Runtime log files are excluded from Git.
 
 ## Tests
 
@@ -241,6 +273,18 @@ The expected current result is:
 OK (2 tests, 8 assertions)
 ```
 
+Run PHPStan at level 8:
+
+```bash
+php vendor/bin/phpstan analyse --configuration phpstan.neon --no-progress
+```
+
+Format PHP files with PHP CS Fixer:
+
+```bash
+php vendor/bin/php-cs-fixer fix CdEncoder
+```
+
 ## Important Limitations
 
 - Lossy WebP compression is not allowed because it can change payload bytes.
@@ -258,3 +302,11 @@ OK (2 tests, 8 assertions)
 Earlier iterations used one byte per pixel, then RGB 5-6-5 with two bytes per pixel. The active implementation uses RGB 8-8-8 with three bytes per payload pixel.
 
 Older files and old implementations remain in files such as `CdEncoder/vechi.php` and `chat`. Those files are historical references and should not be treated as the active implementation.
+
+## Example and Demo
+
+The repository includes a sample generated image at `examples/example.webp`.
+
+The live demo is available at:
+
+https://cdencoder.muzichii.ro

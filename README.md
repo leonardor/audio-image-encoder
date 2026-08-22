@@ -14,7 +14,7 @@ Given these premises, this project might evolve into a tool that helps people ci
 
 ## License
 
-This project is open-source software licensed under the MIT License.
+This project is open-source software licensed under the MIT License. See [LICENSE](./LICENSE) for the full license text.
 
 You can freely use, modify, and distribute it in both personal and commercial projects.
 You must include the original copyright notice and permission notice in your copies or substantial portions of the software.
@@ -42,7 +42,7 @@ The web interface supports WebP encode/decode only. Metadata and technical MP3 d
 - PHP 8.4 or newer
 - GD with WebP support
 - FFmpeg installed at `/usr/bin/ffmpeg`
-- Composer dependencies from `composer.json`
+- Composer dependencies from `src/composer.json`
 
 Check the required executables:
 
@@ -55,9 +55,10 @@ The web application transcodes uploaded audio to `64 kbps` before encoding. The 
 
 ## Installation
 
-Run the following commands:
+The Composer project is located in `src`. Run the following commands from the repository root:
 
 ```bash
+cd src
 php composer.phar install --no-interaction
 ```
 
@@ -71,7 +72,8 @@ Composer installs:
 - `ramsey/uuid` for generated file names;
 - `monolog/monolog` for PSR-3 logging;
 - `phpstan/phpstan` for static analysis;
-- `phpunit/phpunit` for tests.
+- `phpunit/phpunit` for tests;
+- `friendsofphp/php-cs-fixer` for PHP code formatting.
 
 FFmpeg itself is a system executable and must be installed separately. On Debian or Ubuntu:
 
@@ -143,9 +145,10 @@ $metadata = $decoder->getMetadata();
 
 ## CLI
 
-The CLI entry point is `public/cli.php`:
+The CLI entry point is `src/public/cli.php`:
 
 ```bash
+cd src
 php public/cli.php cd-encoder encode input.mp3 output.webp
 php public/cli.php cd-encoder encode-max input.mp3 output.webp
 php public/cli.php cd-encoder decode input.webp recovered.mp3
@@ -153,11 +156,14 @@ php public/cli.php cd-encoder decode input.webp recovered.mp3
 
 The Symfony Console command accepts input and output paths directly. The CLI does not transcode audio; the web upload flow performs the `64 kbps` conversion before encoding.
 
+Application logs are written to `src/logs/cd-encoder.log`. Runtime log files are excluded from Git.
+
 ## Tests
 
-Run the PHPUnit suite:
+Run the PHPUnit suite from `src`:
 
 ```bash
+cd src
 php vendor/bin/phpunit --configuration phpunit.xml
 ```
 
@@ -172,6 +178,20 @@ Expected result:
 
 ```text
 OK (2 tests, 8 assertions)
+```
+
+Run PHPStan at level 8:
+
+```bash
+cd src
+php vendor/bin/phpstan analyse --configuration phpstan.neon --no-progress
+```
+
+Format PHP files with PHP CS Fixer:
+
+```bash
+cd src
+php vendor/bin/php-cs-fixer fix CdEncoder
 ```
 
 ## Important Compatibility Notes
