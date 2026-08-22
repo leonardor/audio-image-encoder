@@ -1,0 +1,8 @@
+parameters:
+    level: 8
+    paths:
+        - CdEncoder
+        - public
+        - tests
+    bootstrapFiles:
+        - autoload.php

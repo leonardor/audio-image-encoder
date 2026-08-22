@@ -145,12 +145,13 @@ class CdEncoder
     //
     // ============================================================
 
-    private const MAGIC = "MP3DISC1";
+    private const MAGIC = 'MP3DISC1';
 
     private const FORMAT_VERSION = 7;
 
     private const METADATA_FIELD_LENGTH = 128;
 
+    /** @var array{title: string, artist: string, album: string, year: string, technical: array<string, mixed>, encoding: array<string, mixed>} */
     private array $metadata = [
         'title' => '',
         'artist' => '',
@@ -161,6 +162,7 @@ class CdEncoder
     ];
 
     // XMP encoding values override these defaults during decoding.
+    /** @var array<string, int|float|string> */
     private array $decodingConfiguration = [];
 
     private string $audioPath = '';
@@ -173,6 +175,7 @@ class CdEncoder
     {
     }
 
+    /** @return array{title: string, artist: string, album: string, year: string, technical: array<string, mixed>, encoding: array<string, mixed>} */
     public function getMetadata(): array
     {
         return $this->metadata;
@@ -199,13 +202,13 @@ class CdEncoder
         }
 
         if (!extension_loaded('gd')) {
-            throw new \RuntimeException("The GD extension is not installed.");
+            throw new \RuntimeException('The GD extension is not installed.');
         }
 
         $rawAudioData = file_get_contents($this->audioPath);
 
         if ($rawAudioData === false) {
-            throw new \RuntimeException("Unable to read the audio file contents.");
+            throw new \RuntimeException('Unable to read the audio file contents.');
         }
 
         $sha256 = hash('sha256', $rawAudioData, true);
@@ -218,7 +221,7 @@ class CdEncoder
         $this->metadata = array_merge($metadata, ['encoding' => $configuration]);
 
         if (!defined('IMG_WEBP_LOSSLESS')) {
-            throw new \RuntimeException("PHP/GD does not support IMG_WEBP_LOSSLESS. Use PHP 8.1+ with GD and WebP.");
+            throw new \RuntimeException('PHP/GD does not support IMG_WEBP_LOSSLESS. Use PHP 8.1+ with GD and WebP.');
         }
 
         $dpi = (int)$configuration['default_dpi'];
@@ -229,7 +232,11 @@ class CdEncoder
 
         $size = self::mmToPx(self::DISC_DIAMETER_MM, $dpi);
 
-        $this->logger->info('Image: {width} x {height}', ['width' => $size, 'height' => $size]);
+        if ($size < 1) {
+            throw new \RuntimeException('The calculated image size is invalid.');
+        }
+
+        $this->logger->info('Image: info...', ['width' => $size, 'height' => $size]);
 
         // --------------------------------------------------------
         // IMAGE
@@ -238,14 +245,14 @@ class CdEncoder
         $image = imagecreatetruecolor($size, $size);
 
         if (!$image) {
-            throw new \RuntimeException("Unable to create the image.");
+            throw new \RuntimeException('Unable to create the image.');
         }
 
         // --------------------------------------------------------
         // BACKGROUND
         // --------------------------------------------------------
 
-        $white = imagecolorallocate($image, 255, 255, 255);
+        $white = self::allocateColor($image, 255, 255, 255);
 
         imagefill($image, 0, 0, $white);
 
@@ -265,7 +272,15 @@ class CdEncoder
         * Each header byte is stored in one pixel.
         */
 
-        $headerBytes = array_values(unpack('C*', $header));
+        $unpackedHeader = unpack('C*', $header);
+
+        if ($unpackedHeader === false) {
+            imagedestroy($image);
+
+            throw new \RuntimeException('Unable to unpack the image header.');
+        }
+
+        $headerBytes = array_values($unpackedHeader);
 
         // --------------------------------------------------------
         // HEADER RING
@@ -285,7 +300,7 @@ class CdEncoder
 
             [$r, $g, $b] = self::paletteColor($byte);
 
-            $color = imagecolorallocate($image, $r, $g, $b);
+            $color = self::allocateColor($image, $r, $g, $b);
 
             /*
             * One pixel per header byte keeps the expanded header ring compact.
@@ -298,7 +313,7 @@ class CdEncoder
         // PAYLOAD
         // --------------------------------------------------------
 
-        $this->logger->info('Encoding {bytes} bytes...', ['bytes' => number_format($dataLength)]);
+        $this->logger->info('Encoding bytes...', ['bytes' => number_format($dataLength)]);
 
         $capacity = self::calculateCapacity($size, $size);
 
@@ -331,11 +346,18 @@ class CdEncoder
             $byteData = str_pad($byteData, 3, "\0");
 
             $bytes = unpack('C3', $byteData);
+
+            if ($bytes === false) {
+                imagedestroy($image);
+
+                throw new \RuntimeException('Unable to unpack audio payload.');
+            }
+
             $value = ($bytes[1] << 16) | ($bytes[2] << 8) | $bytes[3];
 
             [$r, $g, $b] = self::payloadColor($value);
 
-            $color = imagecolorallocate($image, $r, $g, $b);
+            $color = self::allocateColor($image, $r, $g, $b);
 
             imagesetpixel($image, $x, $y, $color);
         }
@@ -348,9 +370,7 @@ class CdEncoder
         * Four large markers.
         */
 
-        $markerColor = imagecolorallocate($image, 255, 255, 255);
-
-        $black = imagecolorallocate($image, 10, 10, 10);
+        $black = self::allocateColor($image, 10, 10, 10);
 
         $markerRadiusMm = self::MARKER_DIAMETER_MM / 2;
 
@@ -434,19 +454,19 @@ class CdEncoder
         );
 
         if (!extension_loaded('gd')) {
-            throw new \RuntimeException("GD is required.");
+            throw new \RuntimeException('GD is required.');
         }
 
         $image = imagecreatefromwebp($this->imagePath);
 
         if (!$image) {
-            throw new \RuntimeException("Unable to open the WebP image.");
+            throw new \RuntimeException('Unable to open the WebP image.');
         }
 
         $width = imagesx($image);
         $height = imagesy($image);
 
-        $this->logger->info('Image: {width} x {height}', ['width' => $width, 'height' => $height]);
+        $this->logger->info('Image info...', ['width' => $width, 'height' => $height]);
 
         $pixelsPerMm = $width / (float)$this->decodingConfiguration['disc_diameter_mm'];
 
@@ -459,7 +479,7 @@ class CdEncoder
         $headerRadius = (float)$this->decodingConfiguration['data_radius_start_header_mm'];
 
         for ($i = 0; $i < $headerLength; $i++) {
-            $angle =-M_PI / 2 + 2 * M_PI * $i / $headerLength;
+            $angle = -M_PI / 2 + 2 * M_PI * $i / $headerLength;
 
             [$xMm, $yMm] = $this->polarForDecode($headerRadius, $angle);
 
@@ -482,7 +502,7 @@ class CdEncoder
         if ($magic !== self::MAGIC) {
             imagedestroy($image);
 
-            throw new \RuntimeException("MAGIC invalid.");
+            throw new \RuntimeException('MAGIC invalid.');
         }
 
         $version = ord($headerBytes[$offset]);
@@ -492,18 +512,42 @@ class CdEncoder
         if ($version !== self::FORMAT_VERSION) {
             imagedestroy($image);
 
-            throw new \RuntimeException("Incompatible format version.");
+            throw new \RuntimeException('Incompatible format version.');
         }
 
-        $dpi = unpack('N', substr($headerBytes, $offset, 4))[1];
+        $unpackedDpi = unpack('N', substr($headerBytes, $offset, 4));
+
+        if ($unpackedDpi === false) {
+            imagedestroy($image);
+
+            throw new \RuntimeException('Unable to read the image DPI.');
+        }
+
+        $dpi = $unpackedDpi[1];
 
         $offset += 4;
 
-        $storedWidth = unpack('N', substr($headerBytes, $offset, 4))[1];
+        $unpackedWidth = unpack('N', substr($headerBytes, $offset, 4));
+
+        if ($unpackedWidth === false) {
+            imagedestroy($image);
+
+            throw new \RuntimeException('Unable to read the stored image width.');
+        }
+
+        $storedWidth = $unpackedWidth[1];
 
         $offset += 4;
 
-        $storedHeight = unpack('N', substr($headerBytes, $offset, 4))[1];
+        $unpackedHeight = unpack('N', substr($headerBytes, $offset, 4));
+
+        if ($unpackedHeight === false) {
+            imagedestroy($image);
+
+            throw new \RuntimeException('Unable to read the stored image height.');
+        }
+
+        $storedHeight = $unpackedHeight[1];
 
         $offset += 4;
 
@@ -527,7 +571,7 @@ class CdEncoder
         if ($fileSize > self::calculateCapacity($width, $height)) {
             imagedestroy($image);
 
-            throw new \RuntimeException("The payload exceeds the image capacity.");
+            throw new \RuntimeException('The payload exceeds the image capacity.');
         }
 
         $this->logger->info('Decoded metadata.', [
@@ -581,7 +625,7 @@ class CdEncoder
         $actualSha = hash('sha256', $data, true);
 
         if (!hash_equals($expectedSha, $actualSha)) {
-            throw new \RuntimeException("SHA-256 mismatch.");
+            throw new \RuntimeException('SHA-256 mismatch.');
         }
 
         // --------------------------------------------------------
@@ -598,7 +642,7 @@ class CdEncoder
         return true;
     }
 
-    private static function readPixelByte($image, int $x, int $y): int
+    private static function readPixelByte(\GdImage $image, int $x, int $y): int
     {
         $rgb = @imagecolorat($image, $x, $y);
 
@@ -609,7 +653,7 @@ class CdEncoder
         return self::colorToByte($r, $g, $b);
     }
 
-    private static function readPixelValue($image, int $x, int $y): int
+    private static function readPixelValue(\GdImage $image, int $x, int $y): int
     {
         $rgb = @imagecolorat($image, $x, $y);
 
@@ -618,6 +662,21 @@ class CdEncoder
         $b = $rgb & 0xFF;
 
         return self::colorToValue($r, $g, $b);
+    }
+
+    private static function allocateColor(\GdImage $image, int $red, int $green, int $blue): int
+    {
+        if ($red < 0 || $red > 255 || $green < 0 || $green > 255 || $blue < 0 || $blue > 255) {
+            throw new \InvalidArgumentException('Image color values must be between 0 and 255.');
+        }
+
+        $color = imagecolorallocate($image, $red, $green, $blue);
+
+        if ($color === false) {
+            throw new \RuntimeException('Unable to allocate an image color.');
+        }
+
+        return $color;
     }
 
     // ============================================================
@@ -638,6 +697,7 @@ class CdEncoder
     //
     // Each header color maps exactly to one byte.
     //
+    /** @return array{int, int, int} */
     private static function paletteColor(int $value): array
     {
         $rIndex = ($value >> 5) & 0x07;
@@ -667,6 +727,7 @@ class CdEncoder
         return($rIndex << 5) | ($gIndex << 2) | $bIndex;
     }
 
+    /** @return array{int, int, int} */
     private static function payloadColor(int $value): array
     {
         $r = ($value >> 16) & 0xFF;
@@ -690,11 +751,13 @@ class CdEncoder
         return max(1, (int)round($mm / 25.4 * $dpi));
     }
 
-    private static function polar(float $radius,float $angle): array
+    /** @return array{float, float} */
+    private static function polar(float $radius, float $angle): array
     {
         return [self::CENTER_X_MM + $radius * cos($angle), self::CENTER_Y_MM + $radius * sin($angle)];
     }
 
+    /** @return array{float, float} */
     private function polarForDecode(float $radius, float $angle): array
     {
         return [
@@ -707,6 +770,7 @@ class CdEncoder
     // SPIRAL PIXEL POSITION
     // ============================================================
 
+    /** @return array{float, float} */
     private static function spiralPosition(int $index): array
     {
         $angle = $index * self::ANGLE_STEP;
@@ -715,6 +779,7 @@ class CdEncoder
         return [$radius, $angle];
     }
 
+    /** @return array{float, float} */
     private function spiralPositionForDecode(int $index): array
     {
         $angle = $index * (float)$this->decodingConfiguration['angle_step'];
@@ -759,6 +824,7 @@ class CdEncoder
     // HEADER
     // ============================================================
 
+    /** @param array<string, mixed> $metadata */
     private static function createHeader(int $dataLength, string $sha256, array $metadata, int $width, int $height, int $dpi): string
     {
         /*
@@ -776,7 +842,7 @@ class CdEncoder
         * TOTAL            573 bytes
         */
 
-    // XMP encoding values override these defaults during decoding.
+        // XMP encoding values override these defaults during decoding.
 
         $header = self::MAGIC . chr(self::FORMAT_VERSION) . pack('N', $dpi) . pack('N', $width) . pack('N', $height) . self::packUint64($dataLength) . $sha256;
 
@@ -800,6 +866,7 @@ class CdEncoder
             : self::PROFILE_STANDARD;
     }
 
+    /** @return array<string, int|float|string> */
     private function encodingConfigurationForProfile(): array
     {
         $configuration = self::encodingConfiguration();
@@ -816,6 +883,7 @@ class CdEncoder
         return $configuration;
     }
 
+    /** @return array<string, int|float|string> */
     private static function encodingConfiguration(): array
     {
         return [
@@ -837,6 +905,10 @@ class CdEncoder
         ];
     }
 
+    /**
+     * @param array<string, mixed> $metadata
+     * @param array<string, int|float|string> $encodingConfiguration
+     */
     private static function writeXmpMetadata(string $imagePath, array $metadata, array $encodingConfiguration): void
     {
         $encoding = json_encode($encodingConfiguration, JSON_THROW_ON_ERROR);
@@ -860,13 +932,13 @@ class CdEncoder
         }
 
         if (file_put_contents($imagePath, $chunk, FILE_APPEND) === false) {
-            throw new \RuntimeException("Unable to write XMP metadata to the WebP file.");
+            throw new \RuntimeException('Unable to write XMP metadata to the WebP file.');
         }
 
         $fileHandle = fopen($imagePath, 'r+b');
 
         if ($fileHandle === false) {
-            throw new \RuntimeException("Unable to update the WebP RIFF header.");
+            throw new \RuntimeException('Unable to update the WebP RIFF header.');
         }
 
         fseek($fileHandle, 4);
@@ -874,6 +946,7 @@ class CdEncoder
         fclose($fileHandle);
     }
 
+    /** @return array<string, mixed> */
     private static function readXmpMetadata(string $imagePath): array
     {
         $contents = file_get_contents($imagePath);
@@ -888,7 +961,13 @@ class CdEncoder
             return [];
         }
 
-        $chunkLength = unpack('V', substr($contents, $chunkPosition + 4, 4))[1];
+        $unpackedChunkLength = unpack('V', substr($contents, $chunkPosition + 4, 4));
+
+        if ($unpackedChunkLength === false) {
+            return [];
+        }
+
+        $chunkLength = $unpackedChunkLength[1];
         $xmp = substr($contents, $chunkPosition + 8, $chunkLength);
         $metadata = [];
 
@@ -916,6 +995,7 @@ class CdEncoder
         return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
     }
 
+    /** @return array{title: string, artist: string, album: string, year: string, technical: array<string, mixed>} */
     private function readMp3Metadata(): array
     {
         $metadata = [
@@ -969,6 +1049,10 @@ class CdEncoder
     private static function unpackUint64(string $data): int
     {
         $parts = unpack('Nhigh/Nlow', $data);
+
+        if ($parts === false) {
+            throw new \InvalidArgumentException('Unable to unpack a 64-bit integer.');
+        }
 
         return ((int)$parts['high'] << 32) | (int)$parts['low'];
     }

@@ -6,6 +6,7 @@ namespace CdEncoder\Application\Services;
 
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Process\Process;
+
 class Transcoder
 {
     private const TRANSCODE_BITRATE = '64k';
@@ -23,7 +24,7 @@ class Transcoder
         $outputPath = tempnam(sys_get_temp_dir(), 'cd-encoder-');
 
         if ($outputPath === false) {
-            throw new \RuntimeException("Unable to create the temporary audio file.");
+            throw new \RuntimeException('Unable to create the temporary audio file.');
         }
 
         unlink($outputPath);
@@ -63,7 +64,7 @@ class Transcoder
             ]);
 
             throw new \RuntimeException(
-                "Transcoding to 64 kbps failed. Check the ffmpeg and ffprobe installation and paths.",
+                'Transcoding to 64 kbps failed. Check the ffmpeg and ffprobe installation and paths.',
                 0,
                 $exception
             );

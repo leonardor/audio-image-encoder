@@ -12,6 +12,14 @@ While working on it, I wondered whether the idea could become a larger project t
 
 Given these premises, this project might evolve into a tool that helps people circumvent censorship.
 
+## License
+
+This project is open-source software licensed under the MIT License.
+
+You can freely use, modify, and distribute it in both personal and commercial projects.
+You must include the original copyright notice and permission notice in your copies or substantial portions of the software.
+The software comes with no warranty, and the authors are not liable for damages.
+
 ## Current Format
 
 - Image format: lossless WebP
@@ -59,7 +67,6 @@ Composer installs:
 - `symfony/process` for managing FFmpeg processes;
 - `symfony/http-foundation` for HTTP requests and responses;
 - `symfony/console` for the command-line interface;
-- `symfony/framework-bundle` is installed for possible full Symfony integration;
 - `twig/twig` for rendering the web interface;
 - `ramsey/uuid` for generated file names;
 - `monolog/monolog` for PSR-3 logging;
