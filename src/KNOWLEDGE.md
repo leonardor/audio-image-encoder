@@ -15,7 +15,7 @@ The active implementation is in `CdEncoder/CdEncoder.php`.
 The web application is in `CdEncoder/Application.php` and uses the following WebP flow:
 
 1. The user uploads an audio file.
-2. `Application` transcodes it to MP3 at `64 kbps` with `/usr/bin/ffmpeg`.
+2. `Transcoder` transcodes it to MP3 at `64 kbps` with `/usr/bin/ffmpeg`.
 3. FFmpeg copies metadata and writes ID3v2.3 and ID3v1 tags.
 4. `CdEncoder::encode()` reads the temporary MP3 and creates a lossless WebP.
 5. The temporary transcoded MP3 is deleted.

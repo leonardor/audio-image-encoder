@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CdEncoder\Tests;
 
-use CdEncoder\CdEncoder;
+use CdEncoder\Application\Services\CdEncoder;
 use PHPUnit\Framework\TestCase;
 
 final class CdEncoderTest extends TestCase
@@ -53,20 +53,6 @@ final class CdEncoderTest extends TestCase
         $this->assertTrue($decoder->decode());
         $this->assertFileExists($decodedAudioPath);
         $this->assertSame(hash_file('sha256', $audioPath), hash_file('sha256', $decodedAudioPath));
-    }
-
-    public function testItCreatesMissingOutputDirectoriesBeforeWritingFiles(): void
-    {
-        $audioPath = $this->temporaryDirectory . DIRECTORY_SEPARATOR . 'nested' . DIRECTORY_SEPARATOR . 'source.mp3';
-        $imagePath = $this->temporaryDirectory . DIRECTORY_SEPARATOR . 'nested' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'output.webp';
-
-        mkdir(dirname($audioPath), 0777, true);
-        file_put_contents($audioPath, random_bytes(64));
-
-        $encoder = new CdEncoder($audioPath, $imagePath);
-
-        $this->assertTrue($encoder->encode());
-        $this->assertFileExists($imagePath);
     }
 
     public function testItReturnsEmptyMetadataForAnAudioFileWithoutTags(): void

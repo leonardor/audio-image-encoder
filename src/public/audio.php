@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 require_once(__DIR__ . '/../autoload.php');
 
-if (isset($_GET['file'])) {
-    CdEncoder\Application::audio($_GET['file']);
-    exit;
-}
+use CdEncoder\UI\Http\Controller\Index;
+use Symfony\Component\HttpFoundation\Request;
 
-header("HTTP/1.1 404 Not Found");
+$request = Request::createFromGlobals();
+$response = (new Index())->audio($request);
+$response->send();
