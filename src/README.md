@@ -55,7 +55,7 @@ The web application transcodes uploaded audio to `64 kbps` before encoding. The 
 
 ## Installation
 
-Run the following commands:
+Run the following commands from the `src` directory:
 
 ```bash
 php composer.phar install --no-interaction
@@ -71,7 +71,8 @@ Composer installs:
 - `ramsey/uuid` for generated file names;
 - `monolog/monolog` for PSR-3 logging;
 - `phpstan/phpstan` for static analysis;
-- `phpunit/phpunit` for tests.
+- `phpunit/phpunit` for tests;
+- `friendsofphp/php-cs-fixer` for PHP code formatting.
 
 FFmpeg itself is a system executable and must be installed separately. On Debian or Ubuntu:
 
@@ -153,9 +154,11 @@ php public/cli.php cd-encoder decode input.webp recovered.mp3
 
 The Symfony Console command accepts input and output paths directly. The CLI does not transcode audio; the web upload flow performs the `64 kbps` conversion before encoding.
 
+Application logs are written to `logs/cd-encoder.log`. Runtime log files are excluded from Git.
+
 ## Tests
 
-Run the PHPUnit suite:
+Run the PHPUnit suite from `src`:
 
 ```bash
 php vendor/bin/phpunit --configuration phpunit.xml
@@ -172,6 +175,18 @@ Expected result:
 
 ```text
 OK (2 tests, 8 assertions)
+```
+
+Run static analysis at level 8:
+
+```bash
+php vendor/bin/phpstan analyse --configuration phpstan.neon --no-progress
+```
+
+Format PHP files:
+
+```bash
+php vendor/bin/php-cs-fixer fix CdEncoder
 ```
 
 ## Important Compatibility Notes

@@ -10,18 +10,18 @@ This is a digital storage format. It is not CD-DA and the generated image cannot
 
 ## Current Implementation
 
-The active implementation is in `CdEncoder/CdEncoder.php`.
+The active implementation is in `CdEncoder/Application/Services/CdEncoder.php`.
 
-The web application is in `CdEncoder/Application.php` and uses the following WebP flow:
+The web application controller is in `CdEncoder/UI/Http/Controller/Index.php` and uses the following WebP flow:
 
 1. The user uploads an audio file.
 2. `Transcoder` transcodes it to MP3 at `64 kbps` with `/usr/bin/ffmpeg`.
 3. FFmpeg copies metadata and writes ID3v2.3 and ID3v1 tags.
-4. `CdEncoder::encode()` reads the temporary MP3 and creates a lossless WebP.
+4. `CdEncoder` reads the temporary MP3 and creates a lossless WebP.
 5. The temporary transcoded MP3 is deleted.
 6. During decoding, `CdEncoder` extracts the payload, verifies SHA-256, writes the recovered MP3, and exposes metadata through `getMetadata()`.
 
-The CLI in `public/cli.php` uses `CdEncoder` directly. It does not perform the web application's 64 kbps transcoding step.
+The CLI in `public/cli.php` uses Symfony Console and the `CliCommand` class. It does not perform the web application's 64 kbps transcoding step.
 
 The web application currently generates and decodes WebP files only.
 
@@ -40,10 +40,14 @@ It is stored as pixel data in a custom header ring. Therefore:
 The current API is:
 
 ```php
-$decoder = new CdEncoder($audioOutputPath, $imagePath);
+$decoder = new CdEncoder($logger);
+$decoder->prepare($audioOutputPath, $imagePath);
 $decoder->decode();
 $metadata = $decoder->getMetadata();
 ```
+
+The encoder and transcoder require a PSR-3 logger. The web and CLI entrypoints
+use Monolog, while tests can use `Psr\Log\NullLogger`.
 
 ## Format Version 7
 
@@ -153,14 +157,16 @@ The header ring must remain sparse enough to avoid two header bytes mapping to t
 Encoding:
 
 ```php
-$encoder = new CdEncoder($audioPath, $imagePath);
+$encoder = new CdEncoder($logger);
+$encoder->prepare($audioPath, $imagePath);
 $encoder->encode();
 ```
 
 Decoding:
 
 ```php
-$decoder = new CdEncoder($audioOutputPath, $imagePath);
+$decoder = new CdEncoder($logger);
+$decoder->prepare($audioOutputPath, $imagePath);
 $decoder->decode();
 $metadata = $decoder->getMetadata();
 ```
@@ -202,6 +208,8 @@ The current direct transcoding flow uses `/usr/bin/ffmpeg`. The error text still
 
 ## Composer Dependencies
 
+The Composer project root is `src`.
+
 Install dependencies with:
 
 ```bash
@@ -211,18 +219,29 @@ php composer.phar install --no-interaction
 Runtime packages:
 
 - `james-heinrich/getid3` for MP3 metadata;
-- `symfony/process` for FFmpeg process execution.
+- `symfony/process` for FFmpeg process execution;
+- `symfony/http-foundation` for HTTP requests and responses;
+- `symfony/console` for the CLI;
+- `twig/twig` for web templates;
+- `ramsey/uuid` for generated file names;
+- `monolog/monolog` for PSR-3 logging.
 
 Development packages:
 
 - `phpstan/phpstan`;
-- `phpunit/phpunit`.
+- `phpunit/phpunit`;
+- `friendsofphp/php-cs-fixer`.
 
-Composer autoloading is loaded by `autoload.php`.
+Composer autoloading is loaded by `src/autoload.php`.
+
+Application logs are written to `logs/cd-encoder.log`. The runtime log file is
+excluded from Git.
 
 ## Tests
 
 Tests are in `tests/CdEncoderTest.php` and configuration is in `phpunit.xml`.
+
+Run them from `src`:
 
 ```bash
 php vendor/bin/phpunit --configuration phpunit.xml
@@ -239,6 +258,18 @@ The expected current result is:
 
 ```text
 OK (2 tests, 8 assertions)
+```
+
+Run PHPStan at level 8:
+
+```bash
+php vendor/bin/phpstan analyse --configuration phpstan.neon --no-progress
+```
+
+Run PHP CS Fixer on the application source:
+
+```bash
+php vendor/bin/php-cs-fixer fix CdEncoder
 ```
 
 ## Important Limitations
