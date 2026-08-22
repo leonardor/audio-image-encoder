@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CdEncoder\Application\Services;
 
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Process\Process;
 class Transcoder
 {
@@ -11,9 +12,13 @@ class Transcoder
     private const FFMPEG_PATH = '/usr/bin/ffmpeg';
     private const CODEC = 'libmp3lame';
 
+    public function __construct(private LoggerInterface $logger)
+    {
+    }
+
     public function transcode(string $inputPath): string
     {
-        error_log("Transcoding audio...");
+        $this->logger->info('Transcoding audio...');
 
         $outputPath = tempnam(sys_get_temp_dir(), 'cd-encoder-');
 
@@ -44,7 +49,7 @@ class Transcoder
                 throw new \RuntimeException($process->getErrorOutput() ?: $process->getOutput());
             }
 
-            error_log("Transcoded audio file $outputPath...");
+            $this->logger->info('Transcoded audio file {outputPath}...', ['outputPath' => $outputPath]);
 
             return $outputPath;
         } catch (\Throwable $exception) {
@@ -52,7 +57,10 @@ class Transcoder
                 unlink($outputPath);
             }
 
-            error_log("Error transcoding audio file $outputPath: " . $exception->getMessage());
+            $this->logger->error('Error transcoding audio file {outputPath}.', [
+                'outputPath' => $outputPath,
+                'exception' => $exception,
+            ]);
 
             throw new \RuntimeException(
                 "Transcoding to 64 kbps failed. Check the ffmpeg and ffprobe installation and paths.",

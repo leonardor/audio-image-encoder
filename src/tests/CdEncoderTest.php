@@ -6,6 +6,7 @@ namespace CdEncoder\Tests;
 
 use CdEncoder\Application\Services\CdEncoder;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 
 final class CdEncoderTest extends TestCase
 {
@@ -45,8 +46,10 @@ final class CdEncoderTest extends TestCase
 
         file_put_contents($audioPath, $audioData);
 
-        $encoder = new CdEncoder($audioPath, $imagePath);
-        $decoder = new CdEncoder($decodedAudioPath, $imagePath);
+        $encoder = new CdEncoder(new NullLogger());
+        $encoder->prepare($audioPath, $imagePath);
+        $decoder = new CdEncoder(new NullLogger());
+        $decoder->prepare($decodedAudioPath, $imagePath);
 
         $this->assertTrue($encoder->encode());
         $this->assertFileExists($imagePath);
@@ -62,8 +65,10 @@ final class CdEncoderTest extends TestCase
 
         file_put_contents($audioPath, random_bytes(64));
 
-        $encoder = new CdEncoder($audioPath, $imagePath);
-        $decoder = new CdEncoder($this->temporaryDirectory . DIRECTORY_SEPARATOR . 'decoded-untagged.mp3', $imagePath);
+        $encoder = new CdEncoder(new NullLogger());
+        $encoder->prepare($audioPath, $imagePath);
+        $decoder = new CdEncoder(new NullLogger());
+        $decoder->prepare($this->temporaryDirectory . DIRECTORY_SEPARATOR . 'decoded-untagged.mp3', $imagePath);
 
         $this->assertTrue($encoder->encode());
         $this->assertTrue($decoder->decode());

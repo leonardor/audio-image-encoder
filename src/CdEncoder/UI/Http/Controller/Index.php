@@ -9,6 +9,7 @@ use CdEncoder\Application\Services\{
     CdEncoder
 };
 use Ramsey\Uuid\Uuid;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
@@ -20,6 +21,10 @@ class Index
 {
     private const AUDIO_FILES_PATH = __DIR__ . '/../../../../public/audio/';
     private const IMAGE_FILES_PATH = __DIR__ . '/../../../../public/images/';
+
+    public function __construct(private LoggerInterface $logger)
+    {
+    }
     
     public function index(Request $request): Response
     {
@@ -52,7 +57,9 @@ class Index
                 default => '',
             };
 
-            error_log('Uploading file ' . ($file?->getClientOriginalName() ?? '') . '...');
+            $this->logger->info('Uploading file {file}...', [
+                'file' => $file?->getClientOriginalName() ?? '',
+            ]);
 
             if (!empty($action)) {
                 try {
@@ -80,10 +87,11 @@ class Index
 
                         switch ($action) {
                             case 'encode':
-                                $transcoder = new Transcoder();
+                                $transcoder = new Transcoder($this->logger);
                                 $transcodedAudioPath = $transcoder->transcode($tmpFile);
 
-                                $cdEncoder = new CdEncoder($transcodedAudioPath, $outputPathFile);
+                                $cdEncoder = new CdEncoder($this->logger);
+                                $cdEncoder->prepare($transcodedAudioPath, $outputPathFile);
 
                                 if ($cdEncoder->encode()) {
                                     $templateData['message'] = "Success! The song was encoded at {$transcoder->getTranscodeBitrate()} kbps into the CD image.";
@@ -95,7 +103,8 @@ class Index
                                 }
                             break;
                             case 'decode':
-                                $cdEncoder = new CdEncoder($outputPathFile, $tmpFile);
+                                $cdEncoder = new CdEncoder($this->logger);
+                                $cdEncoder->prepare($outputPathFile, $tmpFile);
                                 
                                 $decoded = $cdEncoder->decode();
 
@@ -120,7 +129,9 @@ class Index
                         unlink($outputPathFile);
                     }
 
-                    error_log($exception->getMessage());
+                    $this->logger->error($exception->getMessage(), [
+                        'exception' => $exception,
+                    ]);
                 } finally {
                     if (($transcodedAudioPath ?? null) !== null && file_exists($transcodedAudioPath)) {
                         unlink($transcodedAudioPath);

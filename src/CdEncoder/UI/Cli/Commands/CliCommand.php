@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace CdEncoder\UI\Cli\Commands;
 
 use CdEncoder\Application\Services\CdEncoder;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-final class Cli extends Command
+class CliCommand extends Command
 {
-    public function __construct(string $name = 'cd-encoder')
+    public function __construct(private LoggerInterface $logger, string $name = 'cd-encoder')
     {
         parent::__construct($name);
     }
@@ -33,10 +34,11 @@ final class Cli extends Command
         $outputPath = $input->getArgument('output');
 
         if ($operation === 'decode') {
-            $encoder = new CdEncoder($outputPath, $inputPath);
+            $encoder = new CdEncoder($this->logger);
+            $encoder->prepare($outputPath, $inputPath);
 
             if (!$encoder->decode()) {
-                $output->getErrorOutput()->writeln('<error>Decoding failed.</error>');
+                $output->writeln('<error>Decoding failed.</error>');
 
                 return Command::FAILURE;
             }
@@ -47,7 +49,7 @@ final class Cli extends Command
         }
 
         if (!in_array($operation, ['encode', 'encode-max'], true)) {
-            $output->getErrorOutput()->writeln('<error>Unknown operation. Use encode, encode-max, or decode.</error>');
+            $output->writeln('<error>Unknown operation. Use encode, encode-max, or decode.</error>');
 
             return Command::INVALID;
         }
@@ -55,10 +57,11 @@ final class Cli extends Command
         $profile = $operation === 'encode-max'
             ? CdEncoder::PROFILE_DIGITAL_MAX
             : CdEncoder::PROFILE_STANDARD;
-        $encoder = new CdEncoder($inputPath, $outputPath, $profile);
+        $encoder = new CdEncoder($this->logger);
+        $encoder->prepare($inputPath, $outputPath, $profile);
 
         if (!$encoder->encode()) {
-            $output->getErrorOutput()->writeln('<error>Encoding failed.</error>');
+            $output->writeln('<error>Encoding failed.</error>');
 
             return Command::FAILURE;
         }

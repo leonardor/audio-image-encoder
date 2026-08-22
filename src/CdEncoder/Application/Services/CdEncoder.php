@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CdEncoder\Application\Services;
 
+use Psr\Log\LoggerInterface;
+
 class CdEncoder
 {
     public const PROFILE_STANDARD = 'standard';
@@ -159,14 +161,16 @@ class CdEncoder
     ];
 
     // XMP encoding values override these defaults during decoding.
-    private array $decodingConfiguration;
+    private array $decodingConfiguration = [];
 
-    private string $profile;
+    private string $audioPath = '';
 
-    public function __construct(private string $audioPath, private string $imagePath, string $profile = self::PROFILE_STANDARD)
+    private string $imagePath = '';
+
+    private string $profile = self::PROFILE_STANDARD;
+
+    public function __construct(private LoggerInterface $logger)
     {
-        $this->profile = self::normalizeProfile($profile);
-        $this->decodingConfiguration = self::encodingConfiguration();
     }
 
     public function getMetadata(): array
@@ -174,9 +178,21 @@ class CdEncoder
         return $this->metadata;
     }
 
+    public function prepare(string $audioPath, string $imagePath, string $profile = self::PROFILE_STANDARD): void
+    {
+        $this->audioPath = $audioPath;
+        $this->imagePath = $imagePath;
+        $this->profile = self::normalizeProfile($profile);
+        $this->decodingConfiguration = self::encodingConfiguration();
+    }
+
     public function encode(): bool
     {
-        error_log("Encoding file: {$this->audioPath} using profile: {$this->profile} into image: {$this->imagePath}...");
+        $this->logger->info('Encoding file {audioPath} using profile {profile} into image {imagePath}...', [
+            'audioPath' => $this->audioPath,
+            'profile' => $this->profile,
+            'imagePath' => $this->imagePath,
+        ]);
 
         if (!is_readable($this->audioPath)) {
             throw new \InvalidArgumentException("Cannot read MP3: $this->audioPath");
@@ -213,7 +229,7 @@ class CdEncoder
 
         $size = self::mmToPx(self::DISC_DIAMETER_MM, $dpi);
 
-        error_log("Image: {$size} x {$size}");
+        $this->logger->info('Image: {width} x {height}', ['width' => $size, 'height' => $size]);
 
         // --------------------------------------------------------
         // IMAGE
@@ -246,8 +262,6 @@ class CdEncoder
         $header = self::createHeader($dataLength, $sha256, $metadata, $size, $size, $dpi);
 
         /*
-        * The header is placed in a separate ring.
-        *
         * Each header byte is stored in one pixel.
         */
 
@@ -284,7 +298,7 @@ class CdEncoder
         // PAYLOAD
         // --------------------------------------------------------
 
-        error_log("Encoding " . number_format($dataLength) . " bytes...");
+        $this->logger->info('Encoding {bytes} bytes...', ['bytes' => number_format($dataLength)]);
 
         $capacity = self::calculateCapacity($size, $size);
 
@@ -376,7 +390,7 @@ class CdEncoder
         // SAVE LOSSLESS WEBP
         // --------------------------------------------------------
 
-        error_log("Writing lossless WebP to $this->imagePath...");
+        $this->logger->info('Writing lossless WebP to {imagePath}...', ['imagePath' => $this->imagePath]);
 
         $ok = imagewebp($image, $this->imagePath, IMG_WEBP_LOSSLESS);
 
@@ -388,20 +402,23 @@ class CdEncoder
 
         self::writeXmpMetadata($this->imagePath, $metadata, $configuration);
 
-        error_log("DONE");
-        error_log("Output: {$this->imagePath}");
-        error_log("Diameter: 120 mm");
-        error_log("DPI: {$dpi}");
-        error_log("Bytes encoded: {$dataLength}");
-        error_log("SHA256: ");
-        error_log(bin2hex($sha256));
+        $this->logger->info('Encoding completed.', [
+            'output' => $this->imagePath,
+            'diameter_mm' => 120,
+            'dpi' => $dpi,
+            'bytes_encoded' => $dataLength,
+            'sha256' => bin2hex($sha256),
+        ]);
 
         return true;
     }
 
     public function decode(): bool
     {
-        error_log("Decoding file: {$this->imagePath} into audio: {$this->audioPath}...");
+        $this->logger->info('Decoding file {imagePath} into audio {audioPath}...', [
+            'imagePath' => $this->imagePath,
+            'audioPath' => $this->audioPath,
+        ]);
 
         if (!is_readable($this->imagePath)) {
             throw new \InvalidArgumentException("Cannot read WebP: $this->imagePath");
@@ -429,7 +446,7 @@ class CdEncoder
         $width = imagesx($image);
         $height = imagesy($image);
 
-        error_log("Image: {$width} x {$height}");
+        $this->logger->info('Image: {width} x {height}', ['width' => $width, 'height' => $height]);
 
         $pixelsPerMm = $width / (float)$this->decodingConfiguration['disc_diameter_mm'];
 
@@ -513,14 +530,16 @@ class CdEncoder
             throw new \RuntimeException("The payload exceeds the image capacity.");
         }
 
-        error_log("Original DPI: {$dpi}");
-        error_log("Original image: {$storedWidth}x{$storedHeight}");
-        error_log("MP3 bytes: " . number_format($fileSize));
-        error_log("Title: " . $metadata['title']);
-        error_log("Artist: " . $metadata['artist']);
-        error_log("Album: " . $metadata['album']);
-        error_log("Year: " . $metadata['year']);
-        error_log("Encoding config: " . json_encode($metadata['encoding']));
+        $this->logger->info('Decoded metadata.', [
+            'dpi' => $dpi,
+            'image' => $storedWidth . 'x' . $storedHeight,
+            'bytes' => $fileSize,
+            'title' => $metadata['title'],
+            'artist' => $metadata['artist'],
+            'album' => $metadata['album'],
+            'year' => $metadata['year'],
+            'encoding' => $metadata['encoding'],
+        ]);
 
         // --------------------------------------------------------
         // READ PAYLOAD
@@ -571,9 +590,10 @@ class CdEncoder
 
         file_put_contents($this->audioPath, $data);
 
-        error_log("SUCCESS");
-        error_log("Recovered: {$this->audioPath}");
-        error_log("SHA256: " . hash('sha256', $data));
+        $this->logger->info('Decoding completed.', [
+            'recovered' => $this->audioPath,
+            'sha256' => hash('sha256', $data),
+        ]);
 
         return true;
     }

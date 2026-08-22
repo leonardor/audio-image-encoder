@@ -15,7 +15,8 @@
         "twig/twig": "^3.28",
         "ramsey/uuid": "^4.9",
         "symfony/console": "^8.1",
-        "symfony/framework-bundle": "^8.1"
+        "symfony/framework-bundle": "^8.1",
+        "monolog/monolog": "^3.10"
     },
     "autoload": {
         "psr-4": {
