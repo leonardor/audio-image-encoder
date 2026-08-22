@@ -180,3 +180,14 @@ OK (2 tests, 8 assertions)
 - If the source metadata changes, regenerate the WebP image.
 - Lossless recovery depends on using lossless WebP. Lossy image compression can corrupt payload bytes and cause a SHA-256 mismatch.
 - Reducing the image resolution or changing spiral constants requires matching encoder and decoder changes and new round-trip tests.
+
+## Example image
+
+This is an example of a generated image:
+
+![Generated CD Encoder image](./examples/example.webp)
+
+## Demo
+
+You can see a demo at https://cdencoder.muzichii.ro
+
