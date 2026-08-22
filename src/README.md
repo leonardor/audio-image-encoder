@@ -4,6 +4,13 @@ CD Encoder stores an audio file as a lossless WebP image and can recover the ori
 
 This is an experimental digital storage format. It is not CD-DA and cannot be played directly by a conventional CD player.
 
+## Purpose
+
+The project started out of curiosity and as a small experiment for fun.
+
+While working on it, I wondered whether the idea could become a larger project that converts audio into image files with optional copyright protection or encryption. An encrypted image could require a key before the audio can be recovered. These capabilities are ideas for future development; the current implementation does not provide encryption, copyright protection, or censorship resistance.
+
+Given these premises, this project might evolve into a tool that helps people circumvent censorship.
 
 ## Current Format
 
@@ -26,14 +33,14 @@ The web interface supports WebP encode/decode only. Metadata and technical MP3 d
 
 - PHP 8.4 or newer
 - GD with WebP support
-- FFmpeg at `/usr/bin/ffmpeg`
+- FFmpeg installed at `/usr/bin/ffmpeg`
 - Composer dependencies from `composer.json`
 
-Check the required executables on Linux:
+Check the required executables:
 
 ```bash
-/usr/bin/ffmpeg -version
-/usr/bin/ffprobe -version
+ffmpeg -version
+ffprobe -version
 ```
 
 The web application transcodes uploaded audio to `64 kbps` before encoding. The `CdEncoder` class itself encodes the file it receives. The transcoded file is temporary and is removed after the image is generated. FFmpeg copies the source metadata into ID3v2.3 and ID3v1 tags.
@@ -50,6 +57,12 @@ Composer installs:
 
 - `james-heinrich/getid3` for ID3 metadata parsing;
 - `symfony/process` for managing FFmpeg processes;
+- `symfony/http-foundation` for HTTP requests and responses;
+- `symfony/console` for the command-line interface;
+- `symfony/framework-bundle` is installed for possible full Symfony integration;
+- `twig/twig` for rendering the web interface;
+- `ramsey/uuid` for generated file names;
+- `monolog/monolog` for PSR-3 logging;
 - `phpstan/phpstan` for static analysis;
 - `phpunit/phpunit` for tests.
 
@@ -65,18 +78,22 @@ sudo apt install ffmpeg
 Encode an audio file:
 
 ```php
-use CdEncoder\CdEncoder;
+use CdEncoder\Application\Services\CdEncoder;
+use Psr\Log\NullLogger;
 
-$encoder = new CdEncoder($audioPath, $imagePath);
+$encoder = new CdEncoder(new NullLogger());
+$encoder->prepare($audioPath, $imagePath);
 $encoder->encode();
 ```
 
 Decode an image:
 
 ```php
-use CdEncoder\CdEncoder;
+use CdEncoder\Application\Services\CdEncoder;
+use Psr\Log\NullLogger;
 
-$decoder = new CdEncoder($audioOutputPath, $imagePath);
+$decoder = new CdEncoder(new NullLogger());
+$decoder->prepare($audioOutputPath, $imagePath);
 $decoder->decode();
 $metadata = $decoder->getMetadata();
 ```
@@ -122,11 +139,12 @@ $metadata = $decoder->getMetadata();
 The CLI entry point is `public/cli.php`:
 
 ```bash
-php public/cli.php encode input.mp3 output.webp
-php public/cli.php decode input.webp recovered.mp3
+php public/cli.php cd-encoder encode input.mp3 output.webp
+php public/cli.php cd-encoder encode-max input.mp3 output.webp
+php public/cli.php cd-encoder decode input.webp recovered.mp3
 ```
 
-The CLI encoder expects the input audio file in `public/audio/`. The output path can be supplied separately. The CLI does not transcode audio; the web upload flow in `Application` performs the 64 kbps conversion.
+The Symfony Console command accepts input and output paths directly. The CLI does not transcode audio; the web upload flow performs the `64 kbps` conversion before encoding.
 
 ## Tests
 
