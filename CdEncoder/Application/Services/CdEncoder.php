@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace CdEncoder\Application\Services;
 
+use CdEncoder\Application\Contracts\EncoderInterface;
 use Psr\Log\LoggerInterface;
 
-class CdEncoder
+class CdEncoder implements EncoderInterface
 {
     public const PROFILE_STANDARD = 'standard';
     public const PROFILE_DIGITAL_MAX = 'digital_max';
@@ -179,6 +180,23 @@ class CdEncoder
     public function getMetadata(): array
     {
         return $this->metadata;
+    }
+
+    public function shouldTranscode(string $audioPath): bool
+    {
+        if (!is_readable($audioPath)) {
+            throw new \InvalidArgumentException("Cannot read MP3: $audioPath");
+        }
+
+        $length = filesize($audioPath);
+
+        if ($length === false) {
+            throw new \RuntimeException("Unable to determine MP3 file size: $audioPath");
+        }
+
+        $size = self::mmToPx(self::DISC_DIAMETER_MM, self::DEFAULT_DPI);
+
+        return $length > self::calculateCapacity($size, $size);
     }
 
     public function prepare(string $audioPath, string $imagePath, string $profile = self::PROFILE_STANDARD): void

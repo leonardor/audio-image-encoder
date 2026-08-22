@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CdEncoder\UI\Cli\Commands;
 
-use CdEncoder\Application\Services\CdEncoder;
+use CdEncoder\Application\Services\DVDEncoder;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -34,7 +34,7 @@ class CliCommand extends Command
         $outputPath = $input->getArgument('output');
 
         if ($operation === 'decode') {
-            $encoder = new CdEncoder($this->logger);
+            $encoder = new DVDEncoder($this->logger);
             $encoder->prepare($outputPath, $inputPath);
 
             if (!$encoder->decode()) {
@@ -55,9 +55,9 @@ class CliCommand extends Command
         }
 
         $profile = $operation === 'encode-max'
-            ? CdEncoder::PROFILE_DIGITAL_MAX
-            : CdEncoder::PROFILE_STANDARD;
-        $encoder = new CdEncoder($this->logger);
+            ? DVDEncoder::PROFILE_DIGITAL_MAX
+            : DVDEncoder::PROFILE_STANDARD;
+        $encoder = new DVDEncoder($this->logger);
         $encoder->prepare($inputPath, $outputPath, $profile);
 
         if (!$encoder->encode()) {
