@@ -15,6 +15,8 @@ if ($argc < 2) {
 MP3 DISC - LOSSLESS WEBP
 Encode:
     php cli.php encode song.mp3 song.webp
+    php cli.php encode-max song.mp3 song.webp
+    php cli.php encode-rs song.mp3 song.webp
 Decode:
     php cli.php decode song.webp recovered.mp3
 TXT;
@@ -25,15 +27,25 @@ TXT;
 try {
     $command = $argv[1];
 
-    if ($command === 'encode') {
+    if ($command === 'encode' || $command === 'encode-max' || $command === 'encode-rs') {
         if ($argc < 4) {
-            throw new RuntimeException("Usage: php cli.php encode input.mp3 output.webp");
+            throw new RuntimeException("Usage: php cli.php {$command} input.mp3 output.webp");
         }
 
         $mp3 = __DIR__ . '/audio/' . $argv[2];
         $output = $argv[3];
 
-        $cdEncoder = new CdEncoder($mp3, $output);
+        $profile = CdEncoder::PROFILE_STANDARD;
+
+        if ($command === 'encode-max') {
+            $profile = CdEncoder::PROFILE_DIGITAL_MAX;
+        }
+
+        if ($command === 'encode-rs') {
+            $profile = CdEncoder::PROFILE_ROBUST_RS;
+        }
+
+        $cdEncoder = new CdEncoder($mp3, $output, $profile);
 
         $cdEncoder->encode();
     } elseif ($command === 'decode') {

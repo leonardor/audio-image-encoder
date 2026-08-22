@@ -55,6 +55,20 @@ final class CdEncoderTest extends TestCase
         $this->assertSame(hash_file('sha256', $audioPath), hash_file('sha256', $decodedAudioPath));
     }
 
+    public function testItCreatesMissingOutputDirectoriesBeforeWritingFiles(): void
+    {
+        $audioPath = $this->temporaryDirectory . DIRECTORY_SEPARATOR . 'nested' . DIRECTORY_SEPARATOR . 'source.mp3';
+        $imagePath = $this->temporaryDirectory . DIRECTORY_SEPARATOR . 'nested' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'output.webp';
+
+        mkdir(dirname($audioPath), 0777, true);
+        file_put_contents($audioPath, random_bytes(64));
+
+        $encoder = new CdEncoder($audioPath, $imagePath);
+
+        $this->assertTrue($encoder->encode());
+        $this->assertFileExists($imagePath);
+    }
+
     public function testItReturnsEmptyMetadataForAnAudioFileWithoutTags(): void
     {
         $audioPath = $this->temporaryDirectory . DIRECTORY_SEPARATOR . 'untagged.mp3';
@@ -96,8 +110,8 @@ final class CdEncoderTest extends TestCase
                 'angle_step' => 0.007,
                 'payload_bytes_per_pixel' => 3,
                 'metadata_field_length' => 128,
+                'profile' => 'standard',
             ],
         ], $decoder->getMetadata());
     }
-
 }

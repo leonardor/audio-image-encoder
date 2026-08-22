@@ -6,6 +6,9 @@ namespace CdEncoder;
 
 class CdEncoder
 {
+    public const PROFILE_STANDARD = 'standard';
+    public const PROFILE_DIGITAL_MAX = 'digital_max';
+
     /*
     * ============================================================
     * MP3 DISC - LOSSLESS WEBP / RGB 24-BIT
@@ -89,6 +92,7 @@ class CdEncoder
     //
 
     private const DEFAULT_DPI = 600;
+    private const DIGITAL_MAX_DPI = 1200;
 
 
     // ============================================================
@@ -157,8 +161,11 @@ class CdEncoder
     // XMP encoding values override these defaults during decoding.
     private array $decodingConfiguration;
 
-    public function __construct(private string $audioPath, private string $imagePath)
+    private string $profile;
+
+    public function __construct(private string $audioPath, private string $imagePath, string $profile = self::PROFILE_STANDARD)
     {
+        $this->profile = self::normalizeProfile($profile);
         $this->decodingConfiguration = self::encodingConfiguration();
     }
 
@@ -169,6 +176,8 @@ class CdEncoder
 
     public function encode(): bool
     {
+        error_log("Encoding file: {$this->audioPath} using profile: {$this->profile} into image: {$this->imagePath}...");
+
         if (!is_readable($this->audioPath)) {
             throw new \InvalidArgumentException("Cannot read MP3: $this->audioPath");
         }
@@ -177,26 +186,26 @@ class CdEncoder
             throw new \RuntimeException("The GD extension is not installed.");
         }
 
-        $dataLength = filesize($this->audioPath);
+        $rawAudioData = file_get_contents($this->audioPath);
 
-        if ($dataLength === false) {
-            throw new \RuntimeException("Unable to determine the audio file size.");
+        if ($rawAudioData === false) {
+            throw new \RuntimeException("Unable to read the audio file contents.");
         }
 
-        $sha256 = hash_file('sha256', $this->audioPath, true);
+        $sha256 = hash('sha256', $rawAudioData, true);
 
-        if ($sha256 === false) {
-            throw new \RuntimeException("Unable to calculate SHA-256 for the audio file.");
-        }
+        $configuration = $this->encodingConfigurationForProfile();
+        $payloadData = $rawAudioData;
+        $dataLength = strlen($payloadData);
 
         $metadata = self::readMp3Metadata();
-        $this->metadata = array_merge($metadata, ['encoding' => self::encodingConfiguration()]);
+        $this->metadata = array_merge($metadata, ['encoding' => $configuration]);
 
         if (!defined('IMG_WEBP_LOSSLESS')) {
             throw new \RuntimeException("PHP/GD does not support IMG_WEBP_LOSSLESS. Use PHP 8.1+ with GD and WebP.");
         }
 
-        $dpi = self::DEFAULT_DPI;
+        $dpi = (int)$configuration['default_dpi'];
 
         // --------------------------------------------------------
         // DIMENSIUNI
@@ -287,14 +296,6 @@ class CdEncoder
             );
         }
 
-        $audioHandle = fopen($this->audioPath, 'rb');
-
-        if ($audioHandle === false) {
-            imagedestroy($image);
-
-            throw new \RuntimeException("Unable to open the audio file for reading.");
-        }
-
         $payloadPixels = (int)ceil($dataLength / 3);
 
         for ($i = 0; $i < $payloadPixels; $i++) {
@@ -311,14 +312,7 @@ class CdEncoder
             $x = (int)round($xMm * $pixelsPerMm);
             $y = (int)round($yMm * $pixelsPerMm);
 
-            $byteData = fread($audioHandle, 3);
-
-            if ($byteData === false || $byteData === '') {
-                fclose($audioHandle);
-                imagedestroy($image);
-
-                throw new \RuntimeException("The audio file changed during encoding.");
-            }
+            $byteData = substr($payloadData, $i * 3, 3);
 
             $byteData = str_pad($byteData, 3, "\0");
 
@@ -331,8 +325,6 @@ class CdEncoder
 
             imagesetpixel($image, $x, $y, $color);
         }
-
-        fclose($audioHandle);
 
         // --------------------------------------------------------
         // ORIENTATION MARKERS
@@ -386,7 +378,6 @@ class CdEncoder
 
         error_log("Writing lossless WebP to $this->imagePath...");
 
-
         $ok = imagewebp($image, $this->imagePath, IMG_WEBP_LOSSLESS);
 
         imagedestroy($image);
@@ -395,7 +386,7 @@ class CdEncoder
             throw new \RuntimeException("Unable to save WebP to file $this->imagePath.");
         }
 
-        self::writeXmpMetadata($this->imagePath, $metadata);
+        self::writeXmpMetadata($this->imagePath, $metadata, $configuration);
 
         error_log("DONE");
         error_log("Output: {$this->imagePath}");
@@ -410,6 +401,8 @@ class CdEncoder
 
     public function decode(): bool
     {
+        error_log("Decoding file: {$this->imagePath} into audio: {$this->audioPath}...");
+
         if (!is_readable($this->imagePath)) {
             throw new \InvalidArgumentException("Cannot read WebP: $this->imagePath");
         }
@@ -780,6 +773,29 @@ class CdEncoder
         return $header;
     }
 
+    private static function normalizeProfile(string $profile): string
+    {
+        return in_array($profile, [self::PROFILE_STANDARD, self::PROFILE_DIGITAL_MAX], true)
+            ? $profile
+            : self::PROFILE_STANDARD;
+    }
+
+    private function encodingConfigurationForProfile(): array
+    {
+        $configuration = self::encodingConfiguration();
+
+        if ($this->profile === self::PROFILE_DIGITAL_MAX) {
+            $configuration['default_dpi'] = self::DIGITAL_MAX_DPI;
+            $configuration['profile'] = self::PROFILE_DIGITAL_MAX;
+
+            return $configuration;
+        }
+
+        $configuration['profile'] = self::PROFILE_STANDARD;
+
+        return $configuration;
+    }
+
     private static function encodingConfiguration(): array
     {
         return [
@@ -801,9 +817,9 @@ class CdEncoder
         ];
     }
 
-    private static function writeXmpMetadata(string $imagePath, array $metadata): void
+    private static function writeXmpMetadata(string $imagePath, array $metadata, array $encodingConfiguration): void
     {
-        $encoding = json_encode(self::encodingConfiguration(), JSON_THROW_ON_ERROR);
+        $encoding = json_encode($encodingConfiguration, JSON_THROW_ON_ERROR);
         $xmp = '<?xpacket begin="' . "\xEF\xBB\xBF" . '" id="W5M0MpCehiHzreSzNTczkc9d"?>'
             . '<x:xmpmeta xmlns:x="adobe:ns:meta/">'
             . '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'

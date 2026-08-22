@@ -18,91 +18,108 @@ class Application
             'downloadUrl' => '',
             'imageUrl' => '',
             'metadata' => [],
-            'action' => 'encode' // Default tab
+            'action' => 'encode'
         ];
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            if (isset($_POST['action']) && $_POST['action'] === 'encode') {
-                set_time_limit(120);
+            set_time_limit(120);
 
-                if (isset($_FILES['audio_file']) && $_FILES['audio_file']['error'] === UPLOAD_ERR_OK) {
-                    $targetDir = __DIR__ . '/../public/images/';
-                    
-                    if (!file_exists($targetDir)) {
-                        mkdir($targetDir, 0755, true); // Create the directory if it does not exist
-                    }
+            $file = match ($_POST['action']) {
+                'encode' => $_FILES['audio_file'],
+                'decode' => $_FILES['image_file'],
+                default => ['name' => '', 'tmp_name' => '', 'error' => UPLOAD_ERR_NO_FILE],
+            };
 
+            $tmpFile = match ($_POST['action']) {
+                'encode' => $_FILES['audio_file']['tmp_name'] ?? '',
+                'decode' => $_FILES['image_file']['tmp_name'] ?? '',
+                default => '',
+            };
 
-                    // 2. Generate a unique name based on UUID v4
-                    $uuid = $this->generateUuidV4();
+            $error = match ($_POST['action']) {
+                'encode' => $_FILES['audio_file']['error'] ?? UPLOAD_ERR_NO_FILE,
+                'decode' => $_FILES['image_file']['error'] ?? UPLOAD_ERR_NO_FILE,
+                default => UPLOAD_ERR_NO_FILE,
+            };
 
-                    $image = $uuid . '.webp';
+            $mimeType = match ($_POST['action']) {
+                'encode' => 'MP3',
+                'decode' => 'WebP',
+                default => '',
+            };
 
-                    $outputImage = $targetDir . $image;
+            error_log("Uploading file {$file['name']}...");
 
-                    $transcodedAudioPath = null;
+            if (isset($_POST['action'])) {
+                try {
+                    if (isset($file) && $error === UPLOAD_ERR_OK) {
+                        // 1. Generate a unique name based on UUID v4
+                        $targetDir = match ($_POST['action']) {
+                            'encode' => __DIR__ . '/../public/images/',
+                            'decode' => __DIR__ . '/../public/audio/',
+                            default => '',
+                        };
 
-                    try {
-                        $transcodedAudioPath = $this->transcodeAudio($_FILES['audio_file']['tmp_name']);
-
-                        $cdEncoder = new CdEncoder($transcodedAudioPath, $outputImage);
-
-                        if ($cdEncoder->encode()) {
-                            $templateData['message'] = "Success! The song was encoded at 64 kbps into the CD image.";
-                            $templateData['messageType'] = "success";
-                            $templateData['imageUrl'] = $image;
-                            $templateData['metadata'] = $cdEncoder->getMetadata();
-                        } else {
-                            $templateData['message'] = "Error while generating the image.";
-                            $templateData['messageType'] = "error";
+                        if (!file_exists($targetDir)) {
+                            mkdir($targetDir, 0755, true); // Create the directory if it does not exist
                         }
-                    } catch (\Throwable $exception) {
-                        $templateData['message'] = $exception->getMessage();
-                        $templateData['messageType'] = "error";
-                    } finally {
-                        if ($transcodedAudioPath !== null && file_exists($transcodedAudioPath)) {
-                            unlink($transcodedAudioPath);
+
+                        $uuid = $this->generateUuidV4();
+
+                        $outputFile = match ($_POST['action']) {
+                            'encode' => $uuid . '.webp',
+                            'decode' => $uuid . '.mp3',
+                            default => '',
+                        };
+
+                        $outputPathFile = $targetDir . $outputFile;
+
+                        switch ($_POST['action']) {
+                            case 'encode':
+                                $transcodedAudioPath = $this->transcodeAudio($tmpFile);
+
+                                $cdEncoder = new CdEncoder($transcodedAudioPath, $outputPathFile);
+
+                                if ($cdEncoder->encode()) {
+                                    $templateData['message'] = "Success! The song was encoded at " . self::TRANSCODE_BITRATE. " kbps into the CD image.";
+                                    $templateData['messageType'] = "success";
+                                    $templateData['imageUrl'] = $outputFile;
+                                    $templateData['metadata'] = $cdEncoder->getMetadata();
+                                } else {
+                                    throw new \RuntimeException("Error while generating the image.");
+                                }
+                            break;
+                            case 'decode':
+                                $cdEncoder = new CdEncoder($outputPathFile, $tmpFile);
+                                
+                                $decoded = $cdEncoder->decode();
+
+                                if ($decoded) {
+                                    $templateData['message'] = "Success! The music was decoded from the image.";
+                                    $templateData['messageType'] = "success";
+                                    $templateData['downloadUrl'] = $outputFile;
+                                    $templateData['metadata'] = $cdEncoder->getMetadata();
+                                } else {
+                                    throw new \RuntimeException("Decoding failed. Make sure the image is a valid lossless WebP generated by this application.");
+                                }
+                            break;
                         }
-                    }
-                } else {
-                    $templateData['message'] = "Please upload a valid MP3 file.";
-                    $templateData['messageType'] = "error";
-                }
-            } elseif (isset($_POST['action']) && $_POST['action'] === 'decode') {
-                set_time_limit(120);
-
-                $templateData['action'] = 'decode';
-
-                if (isset($_FILES['image_file']) && $_FILES['image_file']['error'] === UPLOAD_ERR_OK) {
-                    $targetDir = __DIR__ . '/../public/audio/';
-                    
-                    if (!file_exists($targetDir)) {
-                        mkdir($targetDir, 0755, true); // Create the directory if it does not exist
-                    }
-
-                    // 2. Generate a unique name based on UUID v4
-                    $uuid = $this->generateUuidV4();
-
-                    $audio = $uuid . '.mp3';
-
-                    $outputAudio = $targetDir . $audio;
-
-                    $cdEncoder = new CdEncoder($outputAudio, $_FILES['image_file']['tmp_name']);
-                    
-                    $decoded = $cdEncoder->decode();
-
-                    if ($decoded) {
-                        $templateData['message'] = "Success! The music was decoded from the image.";
-                        $templateData['messageType'] = "success";
-                        $templateData['downloadUrl'] = $audio;
-                        $templateData['metadata'] = $cdEncoder->getMetadata();
                     } else {
-                        $templateData['message'] = "Decoding failed. Make sure the image is a valid lossless WebP generated by this application.";
-                        $templateData['messageType'] = "error";
+                        throw new \RuntimeException("Please upload a valid {$mimeType} file.");
                     }
-                } else {
-                    $templateData['message'] = "Please upload a valid WebP image.";
+                } catch (\Throwable $exception) {
+                    $templateData['message'] = $exception->getMessage();
                     $templateData['messageType'] = "error";
+
+                    if (($outputPathFile ?? null) !== null && file_exists($outputPathFile)) {
+                        unlink($outputPathFile);
+                    }
+
+                    error_log($exception->getMessage());
+                } finally {
+                    if (($transcodedAudioPath ?? null) !== null && file_exists($transcodedAudioPath)) {
+                        unlink($transcodedAudioPath);
+                    }
                 }
             }
         }
@@ -112,6 +129,8 @@ class Application
 
     private function render(string $filePath, array $variables = []): string
     {
+        error_log("Rendering interface...");
+
         // 1. Check whether the external file exists
         if (!file_exists($filePath)) {
             //return "Error: Template file was not found.";
@@ -136,6 +155,8 @@ class Application
 
     private function transcodeAudio(string $inputPath): string
     {
+        error_log("Transcoding audio...");
+
         $outputPath = tempnam(sys_get_temp_dir(), 'cd-encoder-');
 
         if ($outputPath === false) {
@@ -164,6 +185,8 @@ class Application
             if (!$process->isSuccessful()) {
                 throw new \RuntimeException($process->getErrorOutput() ?: $process->getOutput());
             }
+
+            error_log("Transcoded audio file $outputPath...");
         } catch (\Throwable $exception) {
             if (file_exists($outputPath)) {
                 unlink($outputPath);
@@ -269,5 +292,4 @@ class Application
             http_response_code(404);
         }
     }
-
 }
