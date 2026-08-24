@@ -20,7 +20,7 @@ You can freely use, modify, and distribute it in both personal and commercial pr
 You must include the original copyright notice and permission notice in your copies or substantial portions of the software.
 The software comes with no warranty, and the authors are not liable for damages.
 
-## Current Format
+## CD Style Format
 
 - Image format: lossless WebP
 - Format version: `1`
@@ -39,7 +39,7 @@ The web interface supports WebP encode/decode and lets the user choose `CdStyleE
 
 The current CD layout keeps a 2-pixel gray outline around the audio ring and uses four 0.5 mm black corner markers, matching the DVD-style visual orientation system while leaving the 58 mm payload annulus clear and readable.
 
-## DVD Format
+## DVD Style Format
 
 The active `DvdStyleEncoder` implementation stores MP3 bytes in a lossless WebP image. It supports two profiles:
 
@@ -50,7 +50,7 @@ The DVD format uses format version `1`, RGB 8-8-8 payload pixels, three audio by
 
 The original CD style format remains supported by the `CdStyleEncoder` class. CD style and DVD style images are different formats and are not interchangeable.
 
-## Blu-ray Format
+## Blu-ray Style Format
 
 The `BluRayStyleEncoder` stores audio in a lossless WebP ring layout using format version `1` and a fixed `600 DPI` profile. The standard `2835 x 2835` image provides approximately `15,576,180` audio payload bytes, or about `14.9 MiB`, before larger image sizes are considered.
 
@@ -222,21 +222,15 @@ php vendor/bin/php-cs-fixer fix AudioImageEncoder
 The repository includes generated reference images for the current encoder layouts:
 
 - `examples/cd-example.webp`
-- `examples/cd-example-max.webp`
 - `examples/dvd-example.webp`
-- `examples/dvd-example-max.webp`
 - `examples/bluray-example.webp`
 
 These are lossless WebP round-trip references. The CD and DVD examples include the current gray outer audio-ring border and the corner marker placement used by the active encoder implementations.
 
-## Example images
-
 These examples reflect the current implementation:
 
 ![Generated CD Style Encoder image](./examples/cd-example.webp)
-![Generated CD maximum payload image](./examples/cd-example-max.webp)
 ![Generated DVD Style Encoder image](./examples/dvd-example.webp)
-![Generated DVD maximum payload image](./examples/dvd-example-max.webp)
 ![Generated Blu-ray Style Encoder image](./examples/bluray-example.webp)
 
 ## Demo
