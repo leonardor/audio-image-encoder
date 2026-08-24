@@ -233,9 +233,9 @@ The CD and DVD examples are lossless WebP round-trip references. Their visual ge
 
 This is an example of a generated image:
 
-- ![Generated CD Style Encoder image](./examples/cd-example.webp)
-- ![Generated DVD Style Encoder image](./examples/dvd-example.webp)
-- ![Generated Blu-ray Style Encoder image](./examples/bluray-example.webp)
+![Generated CD Style Encoder image](./examples/cd-example.webp)
+![Generated DVD Style Encoder image](./examples/dvd-example.webp)
+![Generated Blu-ray Style Encoder image](./examples/bluray-example.webp)
 
 ## Demo
 
