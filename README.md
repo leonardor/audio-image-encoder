@@ -1,6 +1,6 @@
-# CD Encoder
+# Audio Image Encoder
 
-CD Encoder stores an audio file as a lossless WebP image and can recover the original bytes with SHA-256 verification. The web interface can choose between the CD, DVD, and Blu-ray encoders; the CLI uses the DVD encoder.
+Audio Image Encoder stores an audio file as a lossless WebP image and can recover the original bytes with SHA-256 verification. The web interface can choose between the CD, DVD, and Blu-ray encoders; the CLI uses the DVD encoder.
 
 This is an experimental digital storage format. It is not CD-DA or DVD-Video and cannot be played directly by a conventional disc player.
 
@@ -23,7 +23,7 @@ The software comes with no warranty, and the authors are not liable for damages.
 ## Current Format
 
 - Image format: lossless WebP
-- Format version: `7`
+- Format version: `1`
 - Default image resolution: `600 DPI` (`2835 x 2835` pixels)
 - Payload encoding: RGB 8-8-8, three audio bytes per payload pixel
 - Spiral pitch: `0.06 mm`
