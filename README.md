@@ -224,9 +224,7 @@ php vendor/bin/php-cs-fixer fix AudioImageEncoder
 The repository includes generated reference images for the current encoder layouts:
 
 - `examples/cd-example.webp`
-- `examples/cd-example-max.webp`
 - `examples/dvd-example.webp`
-- `examples/dvd-example-max.webp`
 - `examples/bluray-example.webp`
 
 The CD and DVD examples are lossless WebP round-trip references. Their visual geometry includes the outer gray ring border and the corner marker placement used by the active encoder implementations.
