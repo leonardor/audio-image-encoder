@@ -8,6 +8,10 @@ CdEncoder stores an audio file inside a lossless WebP image and recovers the ori
 
 This is a digital storage format. It is not CD-DA and the generated image cannot be played by a normal CD player.
 
+## Development Tools
+
+Some implementation and documentation work was assisted by GitHub Copilot. All generated changes were reviewed, tested, and integrated by the project maintainer.
+
 ## License
 
 The project is licensed under the MIT License. The full license text is in `LICENSE`.
@@ -21,20 +25,29 @@ The project is licensed under the MIT License. The full license text is in `LICE
 
 ## Current Implementation
 
-The active implementation is in `CdEncoder/Application/Services/CdEncoder.php`.
+The active encoder implementations are `AudioImageEncoder/Application/Services/CdStyleEncoder.php`, `DvdStyleEncoder.php`, and `BluRayStyleEncoder.php`. The CD implementation handles format version `7`; DVD and Blu-ray use separate format contracts and are not interchangeable.
 
 The web application controller is in `CdEncoder/UI/Http/Controller/Index.php` and uses the following WebP flow:
 
 1. The user uploads an audio file.
 2. `Transcoder` transcodes it to MP3 at `64 kbps` with `/usr/bin/ffmpeg`.
 3. FFmpeg copies metadata and writes ID3v2.3 and ID3v1 tags.
-4. `CdEncoder` reads the temporary MP3 and creates a lossless WebP.
+4. The selected encoder reads the temporary MP3 and creates a lossless WebP.
 5. The temporary transcoded MP3 is deleted.
-6. During decoding, `CdEncoder` extracts the payload, verifies SHA-256, writes the recovered MP3, and exposes metadata through `getMetadata()`.
+6. During decoding, the selected encoder extracts the payload, verifies SHA-256, writes the recovered MP3, and exposes metadata through `getMetadata()`.
 
 The CLI in `public/cli.php` uses Symfony Console and the `CliCommand` class. It does not perform the web application's 64 kbps transcoding step.
 
-The web application currently generates and decodes WebP files only.
+The CLI syntax is:
+
+```bash
+php public/cli.php audio-image-encoder encode input.mp3 output.webp [cd|dvd|bluray]
+php public/cli.php audio-image-encoder decode input.webp recovered.mp3 [cd|dvd|bluray]
+```
+
+The encoder argument defaults to `dvd` for compatibility. `encode-max` is DVD-only and selects the `digital_max` profile.
+
+The web application presents a format selector for CD, DVD, and Blu-ray encode/decode operations. DVD is the default selection. The CLI uses DVD and supports the `digital_max` profile.
 
 The standalone HTTP entrypoints use Symfony HttpFoundation responses. Images
 and recovered audio are streamed with `BinaryFileResponse`, including standard
@@ -55,7 +68,7 @@ It is stored as pixel data in a custom header ring. Therefore:
 The current API is:
 
 ```php
-$decoder = new CdEncoder($logger);
+$decoder = new CdStyleEncoder($logger);
 $decoder->prepare($audioOutputPath, $imagePath);
 $decoder->decode();
 $metadata = $decoder->getMetadata();
@@ -64,9 +77,57 @@ $metadata = $decoder->getMetadata();
 The encoder and transcoder require a PSR-3 logger. The HTTP and CLI entrypoints
 use Monolog, while tests can use `Psr\Log\NullLogger`.
 
-## Format Version 7
+## DVD Format Version 1
 
-The current format version is `7`. Older image versions are not compatible with the active decoder.
+The current active format version is `1`. It is a DVD-oriented format despite using WebP as its storage container, and it is not compatible with the older CD format.
+
+### Profiles
+
+| Profile | DPI | Purpose |
+|---|---:|---|
+| `standard` | 600 | Default web and CLI profile |
+| `digital_max` | 1200 | Higher-density CLI profile |
+
+The image size is calculated from the payload and may grow up to `8000 x 8000` pixels. The format supports input files up to 1 GiB, subject to the available payload capacity.
+
+### Image
+
+- Format: lossless WebP
+- Disc diameter: `120 mm`
+- Payload color model: RGB 8-8-8
+- Payload density: `3 audio bytes per payload pixel`
+- Header size: `571 bytes`
+- Metadata field size: `128 bytes` per field
+
+### Configuration
+
+The WebP XMP `encoding` entry stores the profile and values used for the image:
+
+- `format_version`
+- `profile`
+- `disc_diameter_mm`
+- `dpi`
+- `inner_radius_px`
+- `margin_px`
+- `fill_factor`
+- `payload_bytes_per_pixel`
+- `metadata_field_length`
+
+The decoder validates this configuration and uses it to locate the payload. Missing or invalid values fall back to the selected local profile.
+
+## Blu-ray Format Version 1
+
+`BluRayStyleEncoder` uses a fixed `600 DPI` square layout. At `120 mm`, the standard image is `2835 x 2835` pixels. The audio annulus uses three bytes per RGB pixel and has a measured capacity of approximately `15,576,180` bytes, or `14.9 MiB`.
+
+The layout contains separate rings for the format header, structural data, file metadata, and audio frames. Unused audio-annulus pixels remain cerulean; the inner disc remains white and the center mark remains black.
+
+Four corner blocks store identical metadata copies with stable copy IDs. Marker borders and identity bits provide rotation evidence. If the primary metadata rings are corrupted, decoding requires at least two readable corner copies with a clear majority. A single surviving corner is intentionally rejected as insufficient evidence.
+
+The decoder verifies the recovered audio against the SHA-256 digest stored in the format header and fails the decode when the digest does not match.
+
+## Legacy CD Format Version 7
+
+The `CdStyleEncoder` class handles the older CD format. Its format version is `7`; CD and DVD images cannot be decoded interchangeably.
 
 ### Image
 
@@ -77,6 +138,8 @@ The current format version is `7`. Older image versions are not compatible with 
 - Payload density: `3 audio bytes per payload pixel`
 - Spiral pitch: `0.06 mm`
 - Angle step: `0.007`
+- Audio ring border: 2-pixel gray outline centered on the 58 mm payload boundary
+- Orientation markers: four 0.5 mm black markers placed in the corners of the image, matching the DVD layout
 
 ### Header
 
@@ -150,13 +213,18 @@ CENTER_X_MM            = 60.0
 CENTER_Y_MM            = 60.0
 HOLE_DIAMETER_MM       = 8.0
 MARKER_DIAMETER_MM     = 0.5
+AUDIO_RING_BORDER_WIDTH_PX = 2
+CORNER_MARKER_EDGE_CLEARANCE_PX = 32
 DEFAULT_DPI            = 600
-DATA_RADIUS_START_MM  = 9
-DATA_RADIUS_START_HEADER = 8.5
-DATA_RADIUS_START_MARKER = 58.0
-DATA_RADIUS_END_MM    = 100.0
-SPIRAL_PITCH_MM        = 0.06
-ANGLE_STEP             = 0.007
+DATA_RADIUS_START_MM         = 9
+DATA_RADIUS_START_HEADER_MM  = 8.5
+DATA_RADIUS_START_MARKER_MM  = 58.0
+DATA_RADIUS_END_MM           = 100.0
+SPIRAL_PITCH_MM              = 0.06
+ANGLE_STEP_RADIANS           = 0.007
+```
+
+The visual layout is intentionally explicit: the payload annulus remains inside the disc, the 2-pixel gray border marks the usable audio ring, and the four corner markers provide stable orientation with no overlap into the payload area.
 ```
 
 The marker radius limits the payload area. The theoretical current capacity is approximately:
@@ -172,7 +240,7 @@ The header ring must remain sparse enough to avoid two header bytes mapping to t
 Encoding:
 
 ```php
-$encoder = new CdEncoder($logger);
+$encoder = new CdStyleEncoder($logger);
 $encoder->prepare($audioPath, $imagePath);
 $encoder->encode();
 ```
@@ -180,7 +248,7 @@ $encoder->encode();
 Decoding:
 
 ```php
-$decoder = new CdEncoder($logger);
+$decoder = new CdStyleEncoder($logger);
 $decoder->prepare($audioOutputPath, $imagePath);
 $decoder->decode();
 $metadata = $decoder->getMetadata();
@@ -254,7 +322,7 @@ Application logs are written to `logs/cd-encoder.log`. Runtime log files are exc
 
 ## Tests
 
-Tests are in `tests/CdEncoderTest.php` and configuration is in `phpunit.xml`.
+Tests are in `tests/CdStyleEncoderTest.php`, `tests/DvdStyleEncoderTest.php`, and `tests/BluRayStyleEncoderTest.php`; configuration is in `phpunit.xml`.
 
 ```bash
 php vendor/bin/phpunit --configuration phpunit.xml
@@ -265,15 +333,18 @@ Current coverage includes:
 - encode/decode of a 257-byte odd-length payload;
 - byte-level integrity through SHA-256;
 - metadata behavior for an untagged audio file;
-- recovery of the stored encoding constants.
+- recovery of the stored encoding constants;
+- DVD image geometry and profile configuration;
+- Blu-ray background colors and legal image dimensions;
+- Blu-ray recovery from a corrupted primary header using corner copies.
 
-The expected current result is:
+The current focused result is:
 
 ```text
-OK (2 tests, 8 assertions)
+OK (6 tests)
 ```
 
-Run PHPStan at level 8:
+Run PHPStan at level 9:
 
 ```bash
 php vendor/bin/phpstan analyse --configuration phpstan.neon --no-progress
@@ -282,7 +353,7 @@ php vendor/bin/phpstan analyse --configuration phpstan.neon --no-progress
 Format PHP files with PHP CS Fixer:
 
 ```bash
-php vendor/bin/php-cs-fixer fix CdEncoder
+php vendor/bin/php-cs-fixer fix AudioImageEncoder
 ```
 
 ## Important Limitations
@@ -305,7 +376,7 @@ Older files and old implementations remain in files such as `CdEncoder/vechi.php
 
 ## Example and Demo
 
-The repository includes a sample generated image at `examples/example.webp`.
+The repository includes sample generated images at `examples/cd-example.webp`, `examples/dvd-example.webp`, and `examples/bluray-example.webp`.
 
 The live demo is available at:
 

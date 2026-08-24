@@ -1,5 +1,5 @@
 {
-    "name": "cd-encoder/cd-encoder",
+    "name": "audio-image-encoder/audio-image-encoder",
     "description": "Lossless audio storage format that encodes MP3 data into WebP images with SHA-256 verification.",
     "license": "MIT",
     "type": "project",
@@ -19,7 +19,7 @@
     },
     "autoload": {
         "psr-4": {
-            "CdEncoder\\": "CdEncoder/"
+            "AudioImageEncoder\\": "AudioImageEncoder/"
         }
     },
     "require-dev": {

@@ -2,14 +2,21 @@
 
 declare(strict_types=1);
 
-namespace CdEncoder\Application\Services;
+namespace AudioImageEncoder\Application\Services;
 
-use CdEncoder\Application\Contracts\EncoderInterface;
+use AudioImageEncoder\Application\Contracts\EncoderInterface;
 use Psr\Log\LoggerInterface;
 
-class CdEncoder implements EncoderInterface
+/**
+ * Encodes MP3 bytes into a lossless WebP image using the original CD-style
+ * experimental format. Header bytes use a reversible palette; audio bytes use
+ * RGB triplets along a deterministic spiral, with XMP storing configuration.
+ */
+class CdStyleEncoder implements EncoderInterface
 {
+    /** Standard 600 DPI disc profile. */
     public const PROFILE_STANDARD = 'standard';
+    /** 1200 DPI profile for larger digital payloads. */
     public const PROFILE_DIGITAL_MAX = 'digital_max';
 
     /*
@@ -70,13 +77,24 @@ class CdEncoder implements EncoderInterface
     // PHYSICAL CONFIGURATION
     // ============================================================
 
+    /** Physical output diameter in millimeters. */
     private const DISC_DIAMETER_MM = 120.0;
 
+    /** Horizontal center coordinate in millimeters. */
     private const CENTER_X_MM = 60.0;
+    /** Vertical center coordinate in millimeters. */
     private const CENTER_Y_MM = 60.0;
 
+    /** Reserved center-hole diameter in millimeters. */
     private const HOLE_DIAMETER_MM = 8.0;
+    /** Diameter of each cardinal orientation marker in millimeters. */
     private const MARKER_DIAMETER_MM = 0.5;
+    /** White clearance between each corner marker and the image edge. */
+    private const CORNER_MARKER_EDGE_CLEARANCE_PX = 32;
+    /** Width of the gray outline around the outer audio-ring boundary. */
+    private const AUDIO_RING_BORDER_WIDTH_PX = 2;
+    /** Gray color used for the outer audio-ring outline. */
+    private const AUDIO_RING_BORDER_COLOR = 0x808080;
 
 
     // ============================================================
@@ -85,16 +103,18 @@ class CdEncoder implements EncoderInterface
     //
     // 600 DPI:
     //
-    // 120 mm ≈ 2835 pixels
+    // 120 mm â‰ˆ 2835 pixels
     //
     // 1200 DPI:
     //
-    // 120 mm ≈ 5669 pixels
+    // 120 mm â‰ˆ 5669 pixels
     //
     // 1200 DPI may be useful for large MP3 files.
     //
 
+    /** Resolution used by the standard profile. */
     private const DEFAULT_DPI = 600;
+    /** Resolution used by the high-capacity digital profile. */
     private const DIGITAL_MAX_DPI = 1200;
 
 
@@ -106,10 +126,14 @@ class CdEncoder implements EncoderInterface
     // Space is reserved for markers.
     //
 
+    /** Inner radius where the audio spiral begins. */
     private const DATA_RADIUS_START_MM = 9;
-    private const  DATA_RADIUS_START_HEADER = 8.5;
-    private const  DATA_RADIUS_START_MARKER = 58.0;
+    /** Radius of the dedicated header ring. */
+    private const DATA_RADIUS_START_HEADER_MM = 8.5;
+    /** Radius of the marker ring used to keep markers clear of payload data. */
+    private const DATA_RADIUS_START_MARKER_MM = 58.0;
 
+    /** Maximum physical radius considered for the spiral capacity calculation. */
     private const DATA_RADIUS_END_MM = 100.0;
 
 
@@ -122,9 +146,11 @@ class CdEncoder implements EncoderInterface
     // Pixels are read along a spiral.
     //
 
+    /** Radial distance between successive spiral revolutions in millimeters. */
     private const SPIRAL_PITCH_MM = 0.06;
 
-    private const ANGLE_STEP = 0.007;
+    /** Angular increment, in radians, between successive payload pixels. */
+    private const ANGLE_STEP_RADIANS = 0.007;
 
 
     // ============================================================
@@ -146,13 +172,20 @@ class CdEncoder implements EncoderInterface
     //
     // ============================================================
 
-    private const MAGIC = 'MP3DISC1';
+    /** Binary header signature identifying this encoder format. */
+    private const MAGIC = 'CDMP3';
 
-    private const FORMAT_VERSION = 7;
+    /** Binary header version used for compatibility validation. */
+    private const FORMAT_VERSION = 1;
 
+    /** Fixed byte width allocated to each textual metadata field. */
     private const METADATA_FIELD_LENGTH = 128;
 
-    /** @var array{title: string, artist: string, album: string, year: string, technical: array<string, mixed>, encoding: array<string, mixed>} */
+    /**
+     * Audio tags, technical details, and the persisted encoding settings.
+     *
+     * @var array{title: string, artist: string, album: string, year: string, technical: array<string, mixed>, encoding: array<string, mixed>}
+     */
     private array $metadata = [
         'title' => '',
         'artist' => '',
@@ -163,25 +196,38 @@ class CdEncoder implements EncoderInterface
     ];
 
     // XMP encoding values override these defaults during decoding.
-    /** @var array<string, int|float|string> */
+    /**
+     * Geometry loaded from XMP and used to reproduce encoder coordinates.
+     *
+     * @var array<string, int|float|string>
+     */
     private array $decodingConfiguration = [];
 
+    /** Source MP3 path during encoding or destination path during decoding. */
     private string $audioPath = '';
 
+    /** Destination WebP path during encoding or source path during decoding. */
     private string $imagePath = '';
 
+    /** Normalized profile selected for the current operation. */
     private string $profile = self::PROFILE_STANDARD;
 
+    /** Creates an encoder that reports progress and failures through the logger. */
     public function __construct(private LoggerInterface $logger)
     {
     }
 
-    /** @return array{title: string, artist: string, album: string, year: string, technical: array<string, mixed>, encoding: array<string, mixed>} */
+    /**
+     * Returns the audio metadata and encoding configuration for this instance.
+     *
+     * @return array{title: string, artist: string, album: string, year: string, technical: array<string, mixed>, encoding: array<string, mixed>}
+     */
     public function getMetadata(): array
     {
         return $this->metadata;
     }
 
+    /** Reports whether the file exceeds the standard profile's physical capacity. */
     public function shouldTranscode(string $audioPath): bool
     {
         if (!is_readable($audioPath)) {
@@ -199,6 +245,7 @@ class CdEncoder implements EncoderInterface
         return $length > self::calculateCapacity($size, $size);
     }
 
+    /** Stores paths and normalizes the profile used by subsequent operations. */
     public function prepare(string $audioPath, string $imagePath, string $profile = self::PROFILE_STANDARD): void
     {
         $this->audioPath = $audioPath;
@@ -207,6 +254,7 @@ class CdEncoder implements EncoderInterface
         $this->decodingConfiguration = self::encodingConfiguration();
     }
 
+    /** Writes the MP3, binary header, markers, and XMP metadata to lossless WebP. */
     public function encode(): bool
     {
         $this->logger->info('Encoding file {audioPath} using profile {profile} into image {imagePath}...', [
@@ -304,7 +352,7 @@ class CdEncoder implements EncoderInterface
         // HEADER RING
         // --------------------------------------------------------
 
-        $headerRadius = self::DATA_RADIUS_START_HEADER;
+        $headerRadius = self::DATA_RADIUS_START_HEADER_MM;
 
         $headerCount = count($headerBytes);
 
@@ -380,32 +428,13 @@ class CdEncoder implements EncoderInterface
             imagesetpixel($image, $x, $y, $color);
         }
 
+        self::drawAudioRingBorder($image, $size, $pixelsPerMm);
+
         // --------------------------------------------------------
         // ORIENTATION MARKERS
         // --------------------------------------------------------
 
-        /*
-        * Four large markers.
-        */
-
-        $black = self::allocateColor($image, 10, 10, 10);
-
-        $markerRadiusMm = self::MARKER_DIAMETER_MM / 2;
-
-        foreach (
-            [
-                [self::CENTER_X_MM, self::CENTER_Y_MM - self::DATA_RADIUS_START_MARKER],
-                [self::CENTER_X_MM + self::DATA_RADIUS_START_MARKER, self::CENTER_Y_MM],
-                [self::CENTER_X_MM, self::CENTER_Y_MM + self::DATA_RADIUS_START_MARKER],
-                [self::CENTER_X_MM - self::DATA_RADIUS_START_MARKER, self::CENTER_Y_MM],
-            ] as [$xMm, $yMm]
-        ) {
-            $x = (int)round($xMm * $pixelsPerMm);
-            $y = (int)round($yMm * $pixelsPerMm);
-            $r = (int)round($markerRadiusMm * $pixelsPerMm);
-
-            imagefilledellipse($image, $x, $y, $r * 2, $r * 2, $black);
-        }
+        self::drawMarkers($image, $size, $pixelsPerMm);
 
         // --------------------------------------------------------
         // CENTER HOLE
@@ -451,6 +480,7 @@ class CdEncoder implements EncoderInterface
         return true;
     }
 
+    /** Reads, validates, hashes, and writes the MP3 payload from a WebP image. */
     public function decode(): bool
     {
         $this->logger->info('Decoding file {imagePath} into audio {audioPath}...', [
@@ -464,12 +494,30 @@ class CdEncoder implements EncoderInterface
 
         $xmpMetadata = self::readXmpMetadata($this->imagePath);
 
-        $this->metadata = array_merge($this->metadata, $xmpMetadata);
+        foreach (['title', 'artist', 'album', 'year'] as $field) {
+            if (is_string($xmpMetadata[$field] ?? null)) {
+                $this->metadata[$field] = $xmpMetadata[$field];
+            }
+        }
 
-        $this->decodingConfiguration = array_merge(
-            self::encodingConfiguration(),
-            is_array($this->metadata['encoding'] ?? null) ? $this->metadata['encoding'] : []
-        );
+        $this->decodingConfiguration = self::encodingConfiguration();
+        if (is_array($xmpMetadata['encoding'] ?? null)) {
+            foreach ($xmpMetadata['encoding'] as $key => $value) {
+                if (is_string($key) && (is_int($value) || is_float($value) || is_string($value))) {
+                    $this->decodingConfiguration[$key] = $value;
+                }
+            }
+        }
+
+        $this->metadata['encoding'] = $this->decodingConfiguration;
+        if (is_array($xmpMetadata['technical'] ?? null)) {
+            $this->metadata['technical'] = [];
+            foreach ($xmpMetadata['technical'] as $key => $value) {
+                if (is_string($key)) {
+                    $this->metadata['technical'][$key] = $value;
+                }
+            }
+        }
 
         if (!extension_loaded('gd')) {
             throw new \RuntimeException('GD is required.');
@@ -513,9 +561,9 @@ class CdEncoder implements EncoderInterface
 
         $offset = 0;
 
-        $magic = substr($headerBytes, $offset, 8);
+        $magic = substr($headerBytes, $offset, strlen(self::MAGIC));
 
-        $offset += 8;
+        $offset += strlen(self::MAGIC);
 
         if ($magic !== self::MAGIC) {
             imagedestroy($image);
@@ -577,14 +625,10 @@ class CdEncoder implements EncoderInterface
 
         $offset += 32;
 
-        $metadata = $this->metadata;
-
         foreach (['title', 'artist', 'album', 'year'] as $field) {
-            $metadata[$field] = rtrim(substr($headerBytes, $offset, self::METADATA_FIELD_LENGTH), "\0");
+            $this->metadata[$field] = rtrim(substr($headerBytes, $offset, self::METADATA_FIELD_LENGTH), "\0");
             $offset += self::METADATA_FIELD_LENGTH;
         }
-
-        $this->metadata = $metadata;
 
         if ($fileSize > self::calculateCapacity($width, $height)) {
             imagedestroy($image);
@@ -596,11 +640,11 @@ class CdEncoder implements EncoderInterface
             'dpi' => $dpi,
             'image' => $storedWidth . 'x' . $storedHeight,
             'bytes' => $fileSize,
-            'title' => $metadata['title'],
-            'artist' => $metadata['artist'],
-            'album' => $metadata['album'],
-            'year' => $metadata['year'],
-            'encoding' => $metadata['encoding'],
+            'title' => $this->metadata['title'],
+            'artist' => $this->metadata['artist'],
+            'album' => $this->metadata['album'],
+            'year' => $this->metadata['year'],
+            'encoding' => $this->metadata['encoding'],
         ]);
 
         // --------------------------------------------------------
@@ -660,6 +704,7 @@ class CdEncoder implements EncoderInterface
         return true;
     }
 
+    /** Converts a palette-encoded image pixel back into one header byte. */
     private static function readPixelByte(\GdImage $image, int $x, int $y): int
     {
         $rgb = @imagecolorat($image, $x, $y);
@@ -671,6 +716,7 @@ class CdEncoder implements EncoderInterface
         return self::colorToByte($r, $g, $b);
     }
 
+    /** Reads a lossless RGB pixel as a packed 24-bit payload value. */
     private static function readPixelValue(\GdImage $image, int $x, int $y): int
     {
         $rgb = @imagecolorat($image, $x, $y);
@@ -682,6 +728,7 @@ class CdEncoder implements EncoderInterface
         return self::colorToValue($r, $g, $b);
     }
 
+    /** Validates and allocates an RGB color in the GD image. */
     private static function allocateColor(\GdImage $image, int $red, int $green, int $blue): int
     {
         if ($red < 0 || $red > 255 || $green < 0 || $green > 255 || $blue < 0 || $blue > 255) {
@@ -715,7 +762,7 @@ class CdEncoder implements EncoderInterface
     //
     // Each header color maps exactly to one byte.
     //
-    /** @return array{int, int, int} */
+    /** @return array{0: int, 1: int, 2: int} */
     private static function paletteColor(int $value): array
     {
         $rIndex = ($value >> 5) & 0x07;
@@ -736,6 +783,7 @@ class CdEncoder implements EncoderInterface
     // Convert RGB back to a byte.
     //
 
+    /** Reconstructs a header byte by quantizing RGB channels to the palette. */
     private static function colorToByte(int $r, int $g, int $b): int
     {
         $rIndex = (int)round($r * 7 / 255);
@@ -745,7 +793,11 @@ class CdEncoder implements EncoderInterface
         return($rIndex << 5) | ($gIndex << 2) | $bIndex;
     }
 
-    /** @return array{int, int, int} */
+    /**
+     * Splits a packed 24-bit payload value into its RGB channels.
+     *
+     * @return array{0: int, 1: int, 2: int}
+     */
     private static function payloadColor(int $value): array
     {
         $r = ($value >> 16) & 0xFF;
@@ -755,6 +807,7 @@ class CdEncoder implements EncoderInterface
         return [$r, $g, $b];
     }
 
+    /** Packs three 8-bit channels into the value used by payload storage. */
     private static function colorToValue(int $r, int $g, int $b): int
     {
         return ($r << 16) | ($g << 8) | $b;
@@ -764,18 +817,27 @@ class CdEncoder implements EncoderInterface
     // UTILITIES
     // ============================================================
 
+    /** Converts physical millimeters to at least one output pixel. */
     private static function mmToPx(float $mm, int $dpi): int
     {
         return max(1, (int)round($mm / 25.4 * $dpi));
     }
 
-    /** @return array{float, float} */
+    /**
+     * Converts disc-centered polar coordinates into physical X/Y coordinates.
+     *
+     * @return array{0: float, 1: float}
+     */
     private static function polar(float $radius, float $angle): array
     {
         return [self::CENTER_X_MM + $radius * cos($angle), self::CENTER_Y_MM + $radius * sin($angle)];
     }
 
-    /** @return array{float, float} */
+    /**
+     * Applies stored decoder geometry when converting polar coordinates.
+     *
+     * @return array{0: float, 1: float}
+     */
     private function polarForDecode(float $radius, float $angle): array
     {
         return [
@@ -788,16 +850,24 @@ class CdEncoder implements EncoderInterface
     // SPIRAL PIXEL POSITION
     // ============================================================
 
-    /** @return array{float, float} */
+    /**
+     * Returns the physical location assigned to a payload pixel during encoding.
+     *
+     * @return array{0: float, 1: float}
+     */
     private static function spiralPosition(int $index): array
     {
-        $angle = $index * self::ANGLE_STEP;
+        $angle = $index * self::ANGLE_STEP_RADIANS;
         $radius = self::DATA_RADIUS_START_MM + self::SPIRAL_PITCH_MM * $angle / (2 * M_PI);
 
         return [$radius, $angle];
     }
 
-    /** @return array{float, float} */
+    /**
+     * Recreates an encoded payload location from stored decoder configuration.
+     *
+     * @return array{0: float, 1: float}
+     */
     private function spiralPositionForDecode(int $index): array
     {
         $angle = $index * (float)$this->decodingConfiguration['angle_step'];
@@ -811,11 +881,12 @@ class CdEncoder implements EncoderInterface
     // CAPACITY
     // ============================================================
 
+    /** Calculates usable spiral bytes after edge, marker, and geometry clearance. */
     private static function calculateCapacity(int $width, int $height): int
     {
         $pixelsPerMm = min($width, $height) / self::DISC_DIAMETER_MM;
         $imageRadiusMm = min($width, $height) / 2 / $pixelsPerMm;
-        $markerRadiusMm = self::DATA_RADIUS_START_MARKER;
+        $markerRadiusMm = self::DATA_RADIUS_START_MARKER_MM;
         $markerClearanceMm = self::MARKER_DIAMETER_MM / 2;
         $dataRadiusEndMm = min(
             self::DATA_RADIUS_END_MM,
@@ -833,22 +904,62 @@ class CdEncoder implements EncoderInterface
 
         $turns = ($dataRadiusEndMm - self::DATA_RADIUS_START_MM) / self::SPIRAL_PITCH_MM;
         $totalAngle = 2 * M_PI * $turns;
-        $spiralPixels = (int)floor($totalAngle / self::ANGLE_STEP);
+        $spiralPixels = (int)floor($totalAngle / self::ANGLE_STEP_RADIANS);
 
         return $spiralPixels * 3;
+    }
+
+    private static function drawAudioRingBorder(\GdImage $image, int $imageSize, float $pixelsPerMm): void
+    {
+        $centerX = (int)round(self::CENTER_X_MM * $pixelsPerMm);
+        $centerY = (int)round(self::CENTER_Y_MM * $pixelsPerMm);
+        $radius = (int)round(self::DATA_RADIUS_START_MARKER_MM * $pixelsPerMm);
+
+        imagesetthickness($image, self::AUDIO_RING_BORDER_WIDTH_PX);
+        imageellipse(
+            $image,
+            $centerX,
+            $centerY,
+            $radius * 2,
+            $radius * 2,
+            self::AUDIO_RING_BORDER_COLOR,
+        );
+        imagesetthickness($image, 1);
+    }
+
+    private static function drawMarkers(\GdImage $image, int $imageSize, float $pixelsPerMm): void
+    {
+        $black = self::allocateColor($image, 10, 10, 10);
+        $markerRadius = (int)round(self::MARKER_DIAMETER_MM / 2 * $pixelsPerMm);
+        $markerInset = self::CORNER_MARKER_EDGE_CLEARANCE_PX + $markerRadius;
+
+        foreach (
+            [
+                [$markerInset, $markerInset],
+                [$imageSize - $markerInset, $markerInset],
+                [$markerInset, $imageSize - $markerInset],
+                [$imageSize - $markerInset, $imageSize - $markerInset],
+            ] as [$x, $y]
+        ) {
+            imagefilledellipse($image, $x, $y, $markerRadius * 2, $markerRadius * 2, $black);
+        }
     }
 
     // ============================================================
     // HEADER
     // ============================================================
 
-    /** @param array<string, mixed> $metadata */
+    /**
+     * Serializes fixed-width binary header fields and tagged metadata.
+     *
+     * @param array<string, mixed> $metadata
+     */
     private static function createHeader(int $dataLength, string $sha256, array $metadata, int $width, int $height, int $dpi): string
     {
         /*
         * Header layout:
         *
-        * MAGIC       8
+        * MAGIC       variable length
         * VERSION     1
         * DPI         4
         * WIDTH       4
@@ -865,7 +976,7 @@ class CdEncoder implements EncoderInterface
         $header = self::MAGIC . chr(self::FORMAT_VERSION) . pack('N', $dpi) . pack('N', $width) . pack('N', $height) . self::packUint64($dataLength) . $sha256;
 
         foreach (['title', 'artist', 'album', 'year'] as $field) {
-            $value = (string)($metadata[$field] ?? '');
+            $value = is_string($metadata[$field] ?? null) ? $metadata[$field] : '';
 
             if (strlen($value) > self::METADATA_FIELD_LENGTH) {
                 $value = substr($value, 0, self::METADATA_FIELD_LENGTH);
@@ -877,6 +988,7 @@ class CdEncoder implements EncoderInterface
         return $header;
     }
 
+    /** Restricts profile selection to the formats understood by this encoder. */
     private static function normalizeProfile(string $profile): string
     {
         return in_array($profile, [self::PROFILE_STANDARD, self::PROFILE_DIGITAL_MAX], true)
@@ -884,7 +996,11 @@ class CdEncoder implements EncoderInterface
             : self::PROFILE_STANDARD;
     }
 
-    /** @return array<string, int|float|string> */
+    /**
+     * Builds the persisted geometry configuration for the selected profile.
+     *
+     * @return array<string, int|float|string>
+     */
     private function encodingConfigurationForProfile(): array
     {
         $configuration = self::encodingConfiguration();
@@ -901,7 +1017,11 @@ class CdEncoder implements EncoderInterface
         return $configuration;
     }
 
-    /** @return array<string, int|float|string> */
+    /**
+     * Returns default geometry and serialization values for this format.
+     *
+     * @return array<string, int|float|string>
+     */
     private static function encodingConfiguration(): array
     {
         return [
@@ -913,11 +1033,11 @@ class CdEncoder implements EncoderInterface
             'hole_diameter_mm' => self::HOLE_DIAMETER_MM,
             'marker_diameter_mm' => self::MARKER_DIAMETER_MM,
             'data_radius_start_mm' => self::DATA_RADIUS_START_MM,
-            'data_radius_start_header_mm' => self::DATA_RADIUS_START_HEADER,
-            'data_radius_start_marker_mm' => self::DATA_RADIUS_START_MARKER,
+            'data_radius_start_header_mm' => self::DATA_RADIUS_START_HEADER_MM,
+            'data_radius_start_marker_mm' => self::DATA_RADIUS_START_MARKER_MM,
             'data_radius_end_mm' => self::DATA_RADIUS_END_MM,
             'spiral_pitch_mm' => self::SPIRAL_PITCH_MM,
-            'angle_step' => self::ANGLE_STEP,
+            'angle_step' => self::ANGLE_STEP_RADIANS,
             'payload_bytes_per_pixel' => 3,
             'metadata_field_length' => self::METADATA_FIELD_LENGTH,
         ];
@@ -934,10 +1054,10 @@ class CdEncoder implements EncoderInterface
             . '<x:xmpmeta xmlns:x="adobe:ns:meta/">'
             . '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
             . '<rdf:Description xmlns:cd="https://cdencoder.local/ns/1.0/"'
-            . ' cd:title="' . self::xmlAttribute((string)($metadata['title'] ?? '')) . '"'
-            . ' cd:artist="' . self::xmlAttribute((string)($metadata['artist'] ?? '')) . '"'
-            . ' cd:album="' . self::xmlAttribute((string)($metadata['album'] ?? '')) . '"'
-            . ' cd:year="' . self::xmlAttribute((string)($metadata['year'] ?? '')) . '"'
+            . ' cd:title="' . self::xmlAttribute(is_string($metadata['title'] ?? null) ? $metadata['title'] : '') . '"'
+            . ' cd:artist="' . self::xmlAttribute(is_string($metadata['artist'] ?? null) ? $metadata['artist'] : '') . '"'
+            . ' cd:album="' . self::xmlAttribute(is_string($metadata['album'] ?? null) ? $metadata['album'] : '') . '"'
+            . ' cd:year="' . self::xmlAttribute(is_string($metadata['year'] ?? null) ? $metadata['year'] : '') . '"'
             . ' cd:technical="' . self::xmlAttribute(json_encode($metadata['technical'] ?? [], JSON_THROW_ON_ERROR)) . '"'
             . ' cd:encoding="' . self::xmlAttribute($encoding) . '"'
             . '/></rdf:RDF></x:xmpmeta><?xpacket end="w"?>';
@@ -964,7 +1084,11 @@ class CdEncoder implements EncoderInterface
         fclose($fileHandle);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Reads optional metadata XMP from the WebP RIFF container.
+     *
+     * @return array<string, mixed>
+     */
     private static function readXmpMetadata(string $imagePath): array
     {
         $contents = file_get_contents($imagePath);
@@ -1008,12 +1132,17 @@ class CdEncoder implements EncoderInterface
         return $metadata;
     }
 
+    /** Escapes metadata for safe placement in an XMP XML attribute. */
     private static function xmlAttribute(string $value): string
     {
         return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
     }
 
-    /** @return array{title: string, artist: string, album: string, year: string, technical: array<string, mixed>} */
+    /**
+     * Extracts optional ID3 and technical metadata using getID3.
+     *
+     * @return array{title: string, artist: string, album: string, year: string, technical: array<string, mixed>}
+     */
     private function readMp3Metadata(): array
     {
         $metadata = [
@@ -1051,6 +1180,7 @@ class CdEncoder implements EncoderInterface
         return $metadata;
     }
 
+    /** Removes control whitespace from a metadata field. */
     private static function cleanMetadataValue(string $value): string
     {
         return trim($value, " \t\r\n\0");
@@ -1059,11 +1189,13 @@ class CdEncoder implements EncoderInterface
     // ============================================================
     // PACK UINT64
     // ============================================================
+    /** Encodes a non-negative payload length in the format's 64-bit field. */
     private static function packUint64(int $value): string
     {
         return pack('N2', 0, $value);
     }
 
+    /** Decodes the format's big-endian 64-bit length field. */
     private static function unpackUint64(string $data): int
     {
         $parts = unpack('Nhigh/Nlow', $data);
@@ -1078,8 +1210,9 @@ class CdEncoder implements EncoderInterface
     // ============================================================
     // HEADER PIXEL COUNT
     // ============================================================
+    /** Returns the exact number of bytes occupied by the binary header. */
     private static function headerSize(): int
     {
-        return 8 + 1 + 4 + 4 + 4 + 8 + 32 + (4 * self::METADATA_FIELD_LENGTH);
+        return strlen(self::MAGIC) + 1 + 4 + 4 + 4 + 8 + 32 + (4 * self::METADATA_FIELD_LENGTH);
     }
 }

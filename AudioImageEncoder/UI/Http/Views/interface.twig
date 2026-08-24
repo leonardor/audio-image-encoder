@@ -129,6 +129,14 @@
             <form action="/" method="POST" enctype="multipart/form-data" class="space-y-6">
                 <input type="hidden" name="action" value="encode">
                 <div>
+                    <label for="encode_encoder" class="block text-sm font-medium text-slate-300 mb-2">Encoder format:</label>
+                    <select id="encode_encoder" name="encoder" class="w-full border border-slate-700 rounded-lg p-2.5 bg-slate-900/50 text-slate-200" required>
+                        <option value="cd" {{ encoder == 'cd' ? 'selected' : '' }}>CD style</option>
+                        <option value="dvd" {{ encoder == 'dvd' ? 'selected' : '' }}>DVD style</option>
+                        <option value="bluray" {{ encoder == 'bluray' ? 'selected' : '' }}>Blu-ray style</option>
+                    </select>
+                </div>
+                <div>
                     <label class="block text-sm font-medium text-slate-300 mb-2">&#127925; Choose an audio file (MP3):</label>
                     <input type="file" id="audio_input" name="audio_file" accept=".mp3" required class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-cyan-500/10 file:text-cyan-400 hover:file:bg-cyan-500/20 border border-slate-700 rounded-lg p-2 bg-slate-900/50">
                 </div>
@@ -144,7 +152,15 @@
             <form action="index.php" method="POST" enctype="multipart/form-data" class="space-y-6">
                 <input type="hidden" name="action" value="decode">
                 <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-2">&#128191; Upload the CD image (WebP):</label>
+                    <label for="decode_encoder" class="block text-sm font-medium text-slate-300 mb-2">Encoder format:</label>
+                    <select id="decode_encoder" name="encoder" class="w-full border border-slate-700 rounded-lg p-2.5 bg-slate-900/50 text-slate-200" required>
+                        <option value="cd" {{ encoder == 'cd' ? 'selected' : '' }}>CD style</option>
+                        <option value="dvd" {{ encoder == 'dvd' ? 'selected' : '' }}>DVD style</option>
+                        <option value="bluray" {{ encoder == 'bluray' ? 'selected' : '' }}>Blu-ray style</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-2">&#128191; Upload the image (WebP):</label>
                     <input type="file" id="image_input" name="image_file" accept=".webp" required class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-fuchsia-500/10 file:text-fuchsia-400 hover:file:bg-fuchsia-500/20 border border-slate-700 rounded-lg p-2 bg-slate-900/50">
                 </div>
                 <div id="image_preview_container" class="hidden flex flex-col items-center bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">

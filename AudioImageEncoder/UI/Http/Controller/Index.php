@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 
-namespace CdEncoder\UI\Http\Controller;
+namespace AudioImageEncoder\UI\Http\Controller;
 
-use CdEncoder\Application\Services\Transcoder;
-use CdEncoder\Application\Contracts\EncoderInterface;
+use AudioImageEncoder\Application\Services\Transcoder;
+use AudioImageEncoder\Application\Contracts\EncoderInterface;
+use AudioImageEncoder\Application\Services\BluRayStyleEncoder;
+use AudioImageEncoder\Application\Services\CdStyleEncoder;
+use AudioImageEncoder\Application\Services\DvdStyleEncoder;
+use InvalidArgumentException;
 use Psr\Log\LoggerInterface;
 use Ramsey\Uuid\Uuid;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -33,12 +37,21 @@ class Index
             'imageUrl' => '',
             'metadata' => [],
             'action' => 'encode',
+            'encoder' => 'dvd',
         ];
 
         if ($request->isMethod('POST')) {
             set_time_limit(120);
 
             $action = $request->request->get('action', '');
+            $encoderName = $request->request->get('encoder', 'dvd');
+
+            if (!is_string($encoderName) || !in_array($encoderName, ['cd', 'dvd', 'bluray'], true)) {
+                throw new InvalidArgumentException('Please choose a valid encoder.');
+            }
+
+            $templateData['encoder'] = $encoderName;
+            $this->encoder = $this->createEncoder($encoderName);
 
             $file = match ($action) {
                 'encode' => $request->files->get('audio_file'),
@@ -55,7 +68,7 @@ class Index
                 default => '',
             };
 
-            $fileName = $file?->getClientOriginalName() ?? '';
+            $fileName = $file instanceof UploadedFile ? $file->getClientOriginalName() : '';
 
             $this->logger->info("Uploading file...", ['file' => $fileName, 'action' => $action]);
 
@@ -87,6 +100,8 @@ class Index
                             case 'encode':
                                 $inputPathFile = $tmpFile;
 
+                                $this->logger->info('Checking if the input file needs transcoding...', ['file' => $fileName]);
+
                                 $isTranscoded = $this->encoder->shouldTranscode($inputPathFile);
 
                                 if ($isTranscoded) {
@@ -94,7 +109,11 @@ class Index
                                     $inputPathFile = $transcoder->transcode($tmpFile);
                                 }
 
+                                $this->logger->info('Preparing the encoder...', ['input' => $inputPathFile, 'output' => $outputPathFile]);
+
                                 $this->encoder->prepare($inputPathFile, $outputPathFile);
+
+                                $this->logger->info('Starting encoding process...', ['input' => $inputPathFile, 'output' => $outputPathFile]);
 
                                 if ($this->encoder->encode()) {
                                     $templateData['message'] = "Success! The song was encoded into the CD image." . ($isTranscoded ? " The original file was transcoded to MP3 format." : "");
@@ -106,7 +125,11 @@ class Index
                                 }
                                 break;
                             case 'decode':
+                                $this->logger->info('Preparing the decoder...', ['output' => $outputPathFile, 'tmp' => $tmpFile]);
+                                
                                 $this->encoder->prepare($outputPathFile, $tmpFile);
+
+                                $this->logger->info('Starting decoding process...', ['output' => $outputPathFile, 'tmp' => $tmpFile]);
 
                                 $decoded = $this->encoder->decode();
 
@@ -154,6 +177,16 @@ class Index
         ]);
 
         return new Response($twig->render($filePath, $variables));
+    }
+
+    private function createEncoder(string $encoderName): EncoderInterface
+    {
+        return match ($encoderName) {
+            'cd' => new CdStyleEncoder($this->logger),
+            'dvd' => new DvdStyleEncoder($this->logger),
+            'bluray' => new BluRayStyleEncoder($this->logger),
+            default => throw new InvalidArgumentException('Please choose a valid encoder.'),
+        };
     }
 
     public function image(Request $request): Response

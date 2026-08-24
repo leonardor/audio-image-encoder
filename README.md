@@ -1,8 +1,8 @@
 # CD Encoder
 
-CD Encoder stores an audio file as a lossless WebP image and can recover the original bytes with SHA-256 verification.
+CD Encoder stores an audio file as a lossless WebP image and can recover the original bytes with SHA-256 verification. The web interface can choose between the CD, DVD, and Blu-ray encoders; the CLI uses the DVD encoder.
 
-This is an experimental digital storage format. It is not CD-DA and cannot be played directly by a conventional CD player.
+This is an experimental digital storage format. It is not CD-DA or DVD-Video and cannot be played directly by a conventional disc player.
 
 ## Purpose
 
@@ -35,14 +35,40 @@ The software comes with no warranty, and the authors are not liable for damages.
 
 Audio metadata remains in the custom pixel header, while the `encoding` and `technical` entries are stored in the WebP XMP chunk and can be read before pixel decoding. During decoding, valid XMP values override the local default constants; missing XMP values fall back to those defaults.
 
-The web interface supports WebP encode/decode only. Metadata and technical MP3 data are shown in separate interface panels.
+The web interface supports WebP encode/decode and lets the user choose `CdStyleEncoder`, `DvdStyleEncoder`, or `BluRayStyleEncoder` for each operation. Metadata and technical MP3 data are shown in separate interface panels. DVD remains the default selection for compatibility.
+
+The current CD layout keeps a 2-pixel gray outline around the audio ring and uses four 0.5 mm black corner markers, matching the DVD-style visual orientation system while leaving the 58 mm payload annulus clear and readable.
+
+## DVD Format
+
+The active `DvdStyleEncoder` implementation stores MP3 bytes in a lossless WebP image. It supports two profiles:
+
+- `standard`: `600 DPI`, suitable for normal use;
+- `digital_max`: `1200 DPI`, for higher payload density.
+
+The DVD format uses format version `1`, RGB 8-8-8 payload pixels, three audio bytes per payload pixel, and a `571`-byte header. The generated image size is calculated from the payload and profile, up to the implementation limit of `8000 x 8000` pixels. DVD images are self-describing: the profile and encoding configuration are stored in the WebP XMP metadata and are used during decoding.
+
+The original CD format remains supported by the `CdStyleEncoder` class for existing format version `7` images. CD and DVD images are different formats and are not interchangeable.
+
+## Blu-ray Format
+
+The `BluRayStyleEncoder` stores audio in a lossless WebP ring layout using format version `1` and a fixed `600 DPI` profile. The standard `2835 x 2835` image provides approximately `15,576,180` audio payload bytes, or about `14.9 MiB`, before larger image sizes are considered.
+
+- Unused audio-annulus pixels remain cerulean.
+- The white inner disc and black center mark are preserved.
+- Four corner blocks contain redundant copies of the format header and metadata.
+- Corner marker borders and identity bits are used for rotation detection.
+- A damaged primary metadata ring can be recovered from a majority of readable corner copies.
+- A SHA-256 mismatch is treated as a decode failure.
+
+Blu-ray images are not interchangeable with CD or DVD images. A Blu-ray image must be decoded with `BluRayStyleEncoder`.
 
 ## Requirements
 
 - PHP 8.4 or newer
 - GD with WebP support
 - FFmpeg installed at `/usr/bin/ffmpeg`
-- Composer dependencies from `src/composer.json`
+- Composer dependencies from `composer.json`
 
 Check the required executables:
 
@@ -55,11 +81,10 @@ The web application transcodes uploaded audio to `64 kbps` before encoding. The 
 
 ## Installation
 
-The Composer project is located in `src`. Run the following commands from the repository root:
+Run the following commands from the repository root:
 
 ```bash
-cd src
-php composer.phar install --no-interaction
+composer install --no-interaction
 ```
 
 Composer installs:
@@ -87,10 +112,10 @@ sudo apt install ffmpeg
 Encode an audio file:
 
 ```php
-use CdEncoder\Application\Services\CdEncoder;
+use AudioImageEncoder\Application\Services\DvdStyleEncoder;
 use Psr\Log\NullLogger;
 
-$encoder = new CdEncoder(new NullLogger());
+$encoder = new DvdStyleEncoder(new NullLogger());
 $encoder->prepare($audioPath, $imagePath);
 $encoder->encode();
 ```
@@ -98,10 +123,10 @@ $encoder->encode();
 Decode an image:
 
 ```php
-use CdEncoder\Application\Services\CdEncoder;
+use AudioImageEncoder\Application\Services\DvdStyleEncoder;
 use Psr\Log\NullLogger;
 
-$decoder = new CdEncoder(new NullLogger());
+$decoder = new DvdStyleEncoder(new NullLogger());
 $decoder->prepare($audioOutputPath, $imagePath);
 $decoder->decode();
 $metadata = $decoder->getMetadata();
@@ -124,19 +149,13 @@ $metadata = $decoder->getMetadata();
         'file_size_bytes' => 0,
     ],
     'encoding' => [
-        'format_version' => 7,
-        'default_dpi' => 600,
-        'disc_diameter_mm' => 120,
-        'center_x_mm' => 60,
-        'center_y_mm' => 60,
-        'hole_diameter_mm' => 8,
-        'marker_diameter_mm' => 0.5,
-        'data_radius_start_mm' => 9,
-        'data_radius_start_header_mm' => 8.5,
-        'data_radius_start_marker_mm' => 58,
-        'data_radius_end_mm' => 100,
-        'spiral_pitch_mm' => 0.06,
-        'angle_step' => 0.007,
+        'format_version' => 1,
+        'profile' => 'standard',
+        'disc_diameter_mm' => 120.0,
+        'dpi' => 600,
+        'inner_radius_px' => 80,
+        'margin_px' => 12,
+        'fill_factor' => 0.9,
         'payload_bytes_per_pixel' => 3,
         'metadata_field_length' => 128,
     ],
@@ -145,18 +164,18 @@ $metadata = $decoder->getMetadata();
 
 ## CLI
 
-The CLI entry point is `src/public/cli.php`:
+The CLI entry point is `public/cli.php`:
 
 ```bash
-cd src
-php public/cli.php cd-encoder encode input.mp3 output.webp
-php public/cli.php cd-encoder encode-max input.mp3 output.webp
-php public/cli.php cd-encoder decode input.webp recovered.mp3
+php public/cli.php audio-image-encoder encode input.mp3 output.webp cd
+php public/cli.php audio-image-encoder encode-max input.mp3 output.webp dvd
+php public/cli.php audio-image-encoder encode input.mp3 output.webp bluray
+php public/cli.php audio-image-encoder decode input.webp recovered.mp3 bluray
 ```
 
-The Symfony Console command accepts input and output paths directly. The CLI does not transcode audio; the web upload flow performs the `64 kbps` conversion before encoding.
+The encoder argument is optional and defaults to `dvd`, preserving the original command form. It accepts `cd`, `dvd`, or `bluray`. `encode-max` is available only for the DVD encoder and uses its `digital_max` profile. The CLI does not transcode audio; the web upload flow performs the `64 kbps` conversion before encoding.
 
-Application logs are written to `src/logs/cd-encoder.log`. Runtime log files are excluded from Git.
+Application logs are written to `logs/cd-encoder.log`. Runtime log files are excluded from Git.
 
 ## Tests
 
@@ -174,16 +193,15 @@ The tests cover:
 - empty metadata handling for an untagged audio file;
 - recovery of the encoding constants and MP3 technical data stored in WebP XMP.
 
-Expected result:
+The separated encoder test files cover CD, DVD, and Blu-ray round trips, odd-length payloads, visual format rules, metadata/configuration, and Blu-ray corner fallback. The current focused result is:
 
 ```text
-OK (2 tests, 8 assertions)
+OK (6 tests)
 ```
 
-Run PHPStan at level 8:
+Run PHPStan at level 9:
 
 ```bash
-cd src
 php vendor/bin/phpstan analyse --configuration phpstan.neon --no-progress
 ```
 
@@ -191,7 +209,7 @@ Format PHP files with PHP CS Fixer:
 
 ```bash
 cd src
-php vendor/bin/php-cs-fixer fix CdEncoder
+php vendor/bin/php-cs-fixer fix AudioImageEncoder
 ```
 
 ## Important Compatibility Notes
@@ -201,13 +219,29 @@ php vendor/bin/php-cs-fixer fix CdEncoder
 - Lossless recovery depends on using lossless WebP. Lossy image compression can corrupt payload bytes and cause a SHA-256 mismatch.
 - Reducing the image resolution or changing spiral constants requires matching encoder and decoder changes and new round-trip tests.
 
+## Example images
+
+The repository includes generated reference images for the current encoder layouts:
+
+- `examples/cd-example.webp`
+- `examples/cd-example-max.webp`
+- `examples/dvd-example.webp`
+- `examples/dvd-example-max.webp`
+- `examples/bluray-example.webp`
+
+The CD and DVD examples are lossless WebP round-trip references. Their visual geometry includes the outer gray ring border and the corner marker placement used by the active encoder implementations.
+
 ## Example image
 
 This is an example of a generated image:
 
-![Generated CD Encoder image](./examples/example.webp)
+![Generated CD Encoder image](./examples/cd-example.webp)
+
+Additional generated examples:
+
+- [DVD example](./examples/dvd-example.webp)
+- [Blu-ray example](./examples/bluray-example.webp)
 
 ## Demo
 
 You can see a demo at https://cdencoder.muzichii.ro
-

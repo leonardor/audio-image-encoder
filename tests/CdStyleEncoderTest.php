@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace CdEncoder\Tests;
+namespace AudioImageEncoder\Tests;
 
-use CdEncoder\Application\Services\CdEncoder;
+use AudioImageEncoder\Application\Services\CdStyleEncoder;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
-final class CdEncoderTest extends TestCase
+final class CdStyleEncoderTest extends TestCase
 {
     private string $temporaryDirectory;
 
@@ -46,13 +46,46 @@ final class CdEncoderTest extends TestCase
 
         file_put_contents($audioPath, $audioData);
 
-        $encoder = new CdEncoder(new NullLogger());
+        $encoder = new CdStyleEncoder(new NullLogger());
         $encoder->prepare($audioPath, $imagePath);
-        $decoder = new CdEncoder(new NullLogger());
+        $decoder = new CdStyleEncoder(new NullLogger());
         $decoder->prepare($decodedAudioPath, $imagePath);
 
         $this->assertTrue($encoder->encode());
         $this->assertFileExists($imagePath);
+
+        $image = imagecreatefromwebp($imagePath);
+        $this->assertNotFalse($image);
+        $imageSize = imagesx($image);
+        $center = (int)round($imageSize / 2);
+        $borderRadius = (int)round(58 * $imageSize / 120);
+        $diagonalX = (int)round($center + $borderRadius * cos(M_PI / 4));
+        $diagonalY = (int)round($center + $borderRadius * sin(M_PI / 4));
+        $borderPixelFound = false;
+
+        for ($offsetX = -2; $offsetX <= 2; $offsetX++) {
+            for ($offsetY = -2; $offsetY <= 2; $offsetY++) {
+                if (imagecolorat($image, $diagonalX + $offsetX, $diagonalY + $offsetY) === 0x808080) {
+                    $borderPixelFound = true;
+                }
+            }
+        }
+
+        $this->assertTrue($borderPixelFound);
+        $markerRadius = (int)round(0.5 / 2 * $imageSize / 120);
+        $markerInset = 32 + $markerRadius;
+        foreach (
+            [
+                [$markerInset, $markerInset],
+                [$imageSize - $markerInset, $markerInset],
+                [$markerInset, $imageSize - $markerInset],
+                [$imageSize - $markerInset, $imageSize - $markerInset],
+            ] as [$markerX, $markerY]
+        ) {
+            $this->assertSame(0x0A0A0A, imagecolorat($image, $markerX, $markerY));
+        }
+        imagedestroy($image);
+
         $this->assertTrue($decoder->decode());
         $this->assertFileExists($decodedAudioPath);
         $this->assertSame(hash_file('sha256', $audioPath), hash_file('sha256', $decodedAudioPath));
@@ -65,9 +98,9 @@ final class CdEncoderTest extends TestCase
 
         file_put_contents($audioPath, random_bytes(64));
 
-        $encoder = new CdEncoder(new NullLogger());
+        $encoder = new CdStyleEncoder(new NullLogger());
         $encoder->prepare($audioPath, $imagePath);
-        $decoder = new CdEncoder(new NullLogger());
+        $decoder = new CdStyleEncoder(new NullLogger());
         $decoder->prepare($this->temporaryDirectory . DIRECTORY_SEPARATOR . 'decoded-untagged.mp3', $imagePath);
 
         $this->assertTrue($encoder->encode());
@@ -86,7 +119,7 @@ final class CdEncoderTest extends TestCase
                 'file_size_bytes' => 64,
             ],
             'encoding' => [
-                'format_version' => 7,
+                'format_version' => 1,
                 'default_dpi' => 600,
                 'disc_diameter_mm' => 120,
                 'center_x_mm' => 60,
@@ -105,4 +138,5 @@ final class CdEncoderTest extends TestCase
             ],
         ], $decoder->getMetadata());
     }
+
 }

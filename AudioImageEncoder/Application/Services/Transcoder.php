@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace CdEncoder\Application\Services;
+namespace AudioImageEncoder\Application\Services;
 
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Process\Process;

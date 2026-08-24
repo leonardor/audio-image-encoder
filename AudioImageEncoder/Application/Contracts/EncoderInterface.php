@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace CdEncoder\Application\Contracts;
+namespace AudioImageEncoder\Application\Contracts;
 
 interface EncoderInterface
 {

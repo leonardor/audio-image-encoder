@@ -2,18 +2,21 @@
 
 declare(strict_types=1);
 
-namespace CdEncoder\UI\Cli\Commands;
+namespace AudioImageEncoder\UI\Cli\Commands;
 
-use CdEncoder\Application\Services\DVDEncoder;
+use AudioImageEncoder\Application\Services\DvdStyleEncoder;
+use AudioImageEncoder\Application\Services\BluRayStyleEncoder;
+use AudioImageEncoder\Application\Services\CdStyleEncoder;
+use InvalidArgumentException;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-class CliCommand extends Command
+class AudioImageEncoderCommand extends Command
 {
-    public function __construct(private LoggerInterface $logger, string $name = 'cd-encoder')
+    public function __construct(private LoggerInterface $logger, string $name = 'audio-image-encoder')
     {
         parent::__construct($name);
     }
@@ -24,7 +27,8 @@ class CliCommand extends Command
             ->setDescription('Encode audio into lossless WebP or decode WebP back to audio.')
             ->addArgument('operation', InputArgument::REQUIRED, 'Operation: encode, encode-max, or decode.')
             ->addArgument('input', InputArgument::REQUIRED, 'Input MP3 or WebP file.')
-            ->addArgument('output', InputArgument::REQUIRED, 'Output WebP or MP3 file.');
+            ->addArgument('output', InputArgument::REQUIRED, 'Output WebP or MP3 file.')
+            ->addArgument('encoder', InputArgument::OPTIONAL, 'Encoder: cd, dvd, or bluray.', 'dvd');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -32,9 +36,15 @@ class CliCommand extends Command
         $operation = $input->getArgument('operation');
         $inputPath = $input->getArgument('input');
         $outputPath = $input->getArgument('output');
+        $encoderName = $input->getArgument('encoder');
+
+        if (!is_string($operation) || !is_string($encoderName) || !is_string($inputPath) || !is_string($outputPath)) {
+            throw new InvalidArgumentException('CLI arguments must be strings.');
+        }
+
+        $encoder = $this->createEncoder($encoderName);
 
         if ($operation === 'decode') {
-            $encoder = new DVDEncoder($this->logger);
             $encoder->prepare($outputPath, $inputPath);
 
             if (!$encoder->decode()) {
@@ -54,10 +64,15 @@ class CliCommand extends Command
             return Command::INVALID;
         }
 
-        $profile = $operation === 'encode-max'
-            ? DVDEncoder::PROFILE_DIGITAL_MAX
-            : DVDEncoder::PROFILE_STANDARD;
-        $encoder = new DVDEncoder($this->logger);
+        if ($operation === 'encode-max' && $encoderName !== 'dvd') {
+            $output->writeln('<error>The encode-max profile is available only for the DVD encoder.</error>');
+
+            return Command::INVALID;
+        }
+
+        $profile = $encoderName === 'dvd' && $operation === 'encode-max'
+            ? DvdStyleEncoder::PROFILE_DIGITAL_MAX
+            : DvdStyleEncoder::PROFILE_STANDARD;
         $encoder->prepare($inputPath, $outputPath, $profile);
 
         if (!$encoder->encode()) {
@@ -69,5 +84,15 @@ class CliCommand extends Command
         $output->writeln('<info>Encoded successfully.</info>');
 
         return Command::SUCCESS;
+    }
+
+    private function createEncoder(string $encoderName): \AudioImageEncoder\Application\Contracts\EncoderInterface
+    {
+        return match ($encoderName) {
+            'cd' => new CdStyleEncoder($this->logger),
+            'dvd' => new DvdStyleEncoder($this->logger),
+            'bluray' => new BluRayStyleEncoder($this->logger),
+            default => throw new InvalidArgumentException('Encoder must be cd, dvd, or bluray.'),
+        };
     }
 }
