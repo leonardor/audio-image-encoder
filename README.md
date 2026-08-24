@@ -1,6 +1,6 @@
 # Audio Image Encoder
 
-Audio Image Encoder stores an audio file as a lossless WebP image and can recover the original bytes with SHA-256 verification. The web interface can choose between the CD, DVD, and Blu-ray encoders; the CLI uses the DVD encoder.
+Audio Image Encoder stores an audio file as a lossless WebP image and can recover the original bytes with SHA-256 verification. The web interface lets the user choose the CD, DVD, or Blu-ray encoder, and the CLI accepts the encoder as an argument.
 
 This is an experimental digital storage format. It is not CD-DA or DVD-Video and cannot be played directly by a conventional disc player.
 
@@ -35,7 +35,7 @@ The software comes with no warranty, and the authors are not liable for damages.
 
 Audio metadata remains in the custom pixel header, while the `encoding` and `technical` entries are stored in the WebP XMP chunk and can be read before pixel decoding. During decoding, valid XMP values override the local default constants; missing XMP values fall back to those defaults.
 
-The web interface supports WebP encode/decode and lets the user choose `CdStyleEncoder`, `DvdStyleEncoder`, or `BluRayStyleEncoder` for each operation. Metadata and technical MP3 data are shown in separate interface panels. DVD remains the default selection for compatibility.
+The web interface supports WebP encode/decode and lets the user choose `CdStyleEncoder`, `DvdStyleEncoder`, or `BluRayStyleEncoder` for each operation. Metadata and technical MP3 data are shown in separate interface panels, and DVD remains the default selection for compatibility.
 
 The current CD layout keeps a 2-pixel gray outline around the audio ring and uses four 0.5 mm black corner markers, matching the DVD-style visual orientation system while leaving the 58 mm payload annulus clear and readable.
 
@@ -48,7 +48,7 @@ The active `DvdStyleEncoder` implementation stores MP3 bytes in a lossless WebP 
 
 The DVD format uses format version `1`, RGB 8-8-8 payload pixels, three audio bytes per payload pixel, and a `571`-byte header. The generated image size is calculated from the payload and profile, up to the implementation limit of `8000 x 8000` pixels. DVD images are self-describing: the profile and encoding configuration are stored in the WebP XMP metadata and are used during decoding.
 
-The original CD format remains supported by the `CdStyleEncoder` class for existing format version `7` images. CD and DVD images are different formats and are not interchangeable.
+The original CD style format remains supported by the `CdStyleEncoder` class. CD style and DVD style images are different formats and are not interchangeable.
 
 ## Blu-ray Format
 
@@ -61,7 +61,7 @@ The `BluRayStyleEncoder` stores audio in a lossless WebP ring layout using forma
 - A damaged primary metadata ring can be recovered from a majority of readable corner copies.
 - A SHA-256 mismatch is treated as a decode failure.
 
-Blu-ray images are not interchangeable with CD or DVD images. A Blu-ray image must be decoded with `BluRayStyleEncoder`.
+Blu-ray style images are not interchangeable with CD or DVD style images. A Blu-ray style image must be decoded with `BluRayStyleEncoder`.
 
 ## Requirements
 
@@ -77,7 +77,7 @@ ffmpeg -version
 ffprobe -version
 ```
 
-The web application transcodes uploaded audio to `64 kbps` before encoding. The `CdEncoder` class itself encodes the file it receives. The transcoded file is temporary and is removed after the image is generated. FFmpeg copies the source metadata into ID3v2.3 and ID3v1 tags.
+The web application transcodes uploaded audio to `64 kbps` before encoding if the audio file exceeds the image maximum storage capacity. The selected encoder class then encodes the temporary file it receives. The transcoded input is temporary and is removed after the image is generated. FFmpeg copies source metadata into ID3v2.3 and ID3v1 tags.
 
 ## Installation
 
@@ -179,10 +179,9 @@ Application logs are written to `logs/cd-encoder.log`. Runtime log files are exc
 
 ## Tests
 
-Run the PHPUnit suite from `src`:
+Run the PHPUnit suite from the project root:
 
 ```bash
-cd src
 php vendor/bin/phpunit --configuration phpunit.xml
 ```
 
@@ -193,7 +192,7 @@ The tests cover:
 - empty metadata handling for an untagged audio file;
 - recovery of the encoding constants and MP3 technical data stored in WebP XMP.
 
-The separated encoder test files cover CD, DVD, and Blu-ray round trips, odd-length payloads, visual format rules, metadata/configuration, and Blu-ray corner fallback. The current focused result is:
+The separated encoder test files cover CD, DVD, and Blu-ray round trips, odd-length payloads, visual format rules, metadata/configuration, and Blu-ray corner fallback. The current test result is:
 
 ```text
 OK (6 tests)
@@ -208,13 +207,12 @@ php vendor/bin/phpstan analyse --configuration phpstan.neon --no-progress
 Format PHP files with PHP CS Fixer:
 
 ```bash
-cd src
 php vendor/bin/php-cs-fixer fix AudioImageEncoder
 ```
 
 ## Important Compatibility Notes
 
-- Images created with older format versions are not compatible with format version `7`.
+- Images created with older format versions are not compatible with the current format version.
 - If the source metadata changes, regenerate the WebP image.
 - Lossless recovery depends on using lossless WebP. Lossy image compression can corrupt payload bytes and cause a SHA-256 mismatch.
 - Reducing the image resolution or changing spiral constants requires matching encoder and decoder changes and new round-trip tests.
@@ -224,17 +222,21 @@ php vendor/bin/php-cs-fixer fix AudioImageEncoder
 The repository includes generated reference images for the current encoder layouts:
 
 - `examples/cd-example.webp`
+- `examples/cd-example-max.webp`
 - `examples/dvd-example.webp`
+- `examples/dvd-example-max.webp`
 - `examples/bluray-example.webp`
 
-The CD and DVD examples are lossless WebP round-trip references. Their visual geometry includes the outer gray ring border and the corner marker placement used by the active encoder implementations.
+These are lossless WebP round-trip references. The CD and DVD examples include the current gray outer audio-ring border and the corner marker placement used by the active encoder implementations.
 
-## Example image
+## Example images
 
-This is an example of a generated image:
+These examples reflect the current implementation:
 
 ![Generated CD Style Encoder image](./examples/cd-example.webp)
+![Generated CD maximum payload image](./examples/cd-example-max.webp)
 ![Generated DVD Style Encoder image](./examples/dvd-example.webp)
+![Generated DVD maximum payload image](./examples/dvd-example-max.webp)
 ![Generated Blu-ray Style Encoder image](./examples/bluray-example.webp)
 
 ## Demo
